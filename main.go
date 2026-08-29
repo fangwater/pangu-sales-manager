@@ -99,7 +99,7 @@ func scheduleMarketingSync(ctx context.Context, syncer *marketing.Syncer, interv
 			logger.Warn("Temu current activity price sync failed", "error", err, "enrollments", len(snapshot.Enrollments), "pages", snapshot.EnrollmentPages)
 			return
 		}
-		logger.Info("Temu current activity price sync completed", "enrollments", len(snapshot.Enrollments), "enrollment_pages", snapshot.EnrollmentPages)
+		logger.Info("Temu current activity price sync completed", "enrollments", len(snapshot.Enrollments), "enrollment_pages", snapshot.EnrollmentPages, "goods_skcs", len(snapshot.GoodsBySKC), "goods_pages", snapshot.GoodsPages)
 	}
 	run()
 	ticker := time.NewTicker(interval)

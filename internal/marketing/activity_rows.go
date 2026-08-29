@@ -15,32 +15,35 @@ type ActivityRowFilter struct {
 }
 
 type ActivitySnapshotRow struct {
-	EnrollID               int64  `json:"enroll_id"`
-	ProductID              int64  `json:"product_id"`
-	GoodsID                int64  `json:"goods_id"`
-	ActivityType           int64  `json:"activity_type"`
-	ActivityTypeName       string `json:"activity_type_name"`
-	ActivityThematicID     int64  `json:"activity_thematic_id,omitempty"`
-	ActivityThematicName   string `json:"activity_thematic_name,omitempty"`
-	EnrollStatus           int    `json:"enroll_status"`
-	SoldStatus             int    `json:"sold_status"`
-	EnrollTime             int64  `json:"enroll_time"`
-	ActivityStock          int64  `json:"activity_stock"`
-	RemainingActivityStock int64  `json:"remaining_activity_stock"`
-	ConsumedActivityStock  int64  `json:"consumed_activity_stock"`
-	EnrollmentSKUCount     int    `json:"enrollment_sku_count"`
-	SKCID                  int64  `json:"skc_id"`
-	SKUID                  int64  `json:"sku_id"`
-	Currency               string `json:"currency"`
-	SiteID                 int64  `json:"site_id"`
-	SiteName               string `json:"site_name"`
-	SiteDailyPrice         int64  `json:"site_daily_price"`
-	SiteActivityPrice      int64  `json:"site_activity_price"`
-	SessionID              int64  `json:"session_id"`
-	SessionName            string `json:"session_name"`
-	SessionStatus          int    `json:"session_status"`
-	SessionStartTime       int64  `json:"session_start_time"`
-	SessionEndTime         int64  `json:"session_end_time"`
+	EnrollID                int64  `json:"enroll_id"`
+	ProductID               int64  `json:"product_id"`
+	GoodsID                 int64  `json:"goods_id"`
+	ActivityType            int64  `json:"activity_type"`
+	ActivityTypeName        string `json:"activity_type_name"`
+	ActivityThematicID      int64  `json:"activity_thematic_id,omitempty"`
+	ActivityThematicName    string `json:"activity_thematic_name,omitempty"`
+	EnrollStatus            int    `json:"enroll_status"`
+	SoldStatus              int    `json:"sold_status"`
+	EnrollTime              int64  `json:"enroll_time"`
+	ActivityStock           int64  `json:"activity_stock"`
+	RemainingActivityStock  int64  `json:"remaining_activity_stock"`
+	ConsumedActivityStock   int64  `json:"consumed_activity_stock"`
+	EnrollmentSKUCount      int    `json:"enrollment_sku_count"`
+	SKCID                   int64  `json:"skc_id"`
+	SKUID                   int64  `json:"sku_id"`
+	Currency                string `json:"currency"`
+	SiteID                  int64  `json:"site_id"`
+	SiteName                string `json:"site_name"`
+	SiteDailyPrice          int64  `json:"site_daily_price"`
+	SiteActivityPrice       int64  `json:"site_activity_price"`
+	SessionID               int64  `json:"session_id"`
+	SessionName             string `json:"session_name"`
+	SessionStatus           int    `json:"session_status"`
+	SessionStartTime        int64  `json:"session_start_time"`
+	SessionEndTime          int64  `json:"session_end_time"`
+	GoodsRecordLoaded       bool   `json:"goods_record_loaded"`
+	SKCSiteStatus           int    `json:"skc_site_status"`
+	SKUListedInCurrentGoods bool   `json:"sku_listed_in_current_goods"`
 }
 
 type ActivitySnapshotSummary struct {
@@ -50,6 +53,8 @@ type ActivitySnapshotSummary struct {
 	TotalActivityStock           int64 `json:"total_activity_stock"`
 	TotalRemainingActivityStock  int64 `json:"total_remaining_activity_stock"`
 	EnrollmentPages              int   `json:"enrollment_pages"`
+	GoodsSKCCount                int   `json:"goods_skc_count"`
+	GoodsPages                   int   `json:"goods_pages"`
 }
 
 func (s *Syncer) ActivityRows(filter ActivityRowFilter) ([]ActivitySnapshotRow, ActivitySnapshotSummary, Snapshot, error) {
@@ -66,7 +71,7 @@ func (s *Syncer) ActivityRows(filter ActivityRowFilter) ([]ActivitySnapshotRow, 
 		if filter.ActivityType != 0 && enrollment.ActivityType != filter.ActivityType {
 			continue
 		}
-		rows = append(rows, enrollmentRows(enrollment, filter)...)
+		rows = append(rows, enrollmentRows(snapshot, enrollment, filter)...)
 	}
 	sort.Slice(rows, func(left, right int) bool {
 		if rows[left].SKCID != rows[right].SKCID {
@@ -91,7 +96,9 @@ func (s *Syncer) ActivityRows(filter ActivityRowFilter) ([]ActivitySnapshotRow, 
 
 func summarizeSnapshot(snapshot Snapshot) ActivitySnapshotSummary {
 	summary := ActivitySnapshotSummary{
-		EnrollmentCount: len(snapshot.Enrollments), EnrollmentPages: snapshot.EnrollmentPages,
+		EnrollmentCount: len(snapshot.Enrollments),
+		EnrollmentPages: snapshot.EnrollmentPages, GoodsSKCCount: len(snapshot.GoodsBySKC),
+		GoodsPages: snapshot.GoodsPages,
 	}
 	for _, enrollment := range snapshot.Enrollments {
 		summary.TotalActivityStock += enrollment.ActivityStock
@@ -109,7 +116,7 @@ func summarizeSnapshot(snapshot Snapshot) ActivitySnapshotSummary {
 	return summary
 }
 
-func enrollmentRows(enrollment temu.MarketingEnrollment, filter ActivityRowFilter) []ActivitySnapshotRow {
+func enrollmentRows(snapshot Snapshot, enrollment temu.MarketingEnrollment, filter ActivityRowFilter) []ActivitySnapshotRow {
 	base := ActivitySnapshotRow{
 		EnrollID: enrollment.EnrollID, ProductID: enrollment.ProductID, GoodsID: enrollment.GoodsID,
 		ActivityType: enrollment.ActivityType, ActivityTypeName: enrollment.ActivityTypeName,
@@ -130,6 +137,10 @@ func enrollmentRows(enrollment temu.MarketingEnrollment, filter ActivityRowFilte
 		skcRow := base
 		skcRow.SKCID = skc.SKCID
 		skcRow.Currency = firstNonEmpty(skc.Currency, base.Currency)
+		if goods, ok := snapshot.GoodsBySKC[skc.SKCID]; ok {
+			skcRow.GoodsRecordLoaded = true
+			skcRow.SKCSiteStatus = goods.SKCSiteStatus
+		}
 		if len(skc.SKUList) == 0 {
 			rows = append(rows, rowsForSessions(skcRow, enrollment.AssignedSessions, nil)...)
 			continue
@@ -141,6 +152,7 @@ func enrollmentRows(enrollment temu.MarketingEnrollment, filter ActivityRowFilte
 			skuRow := skcRow
 			skuRow.SKUID = sku.SKUID
 			skuRow.Currency = firstNonEmpty(sku.Currency, skcRow.Currency)
+			skuRow.SKUListedInCurrentGoods = skuListed(snapshot.GoodsBySKC, skc.SKCID, sku.SKUID)
 			rows = append(rows, rowsForSessions(skuRow, enrollment.AssignedSessions, sku.SitePriceList)...)
 		}
 	}
@@ -218,4 +230,17 @@ func enrollmentSKUCount(enrollment temu.MarketingEnrollment) int {
 		count += len(skc.SKUList)
 	}
 	return count
+}
+
+func skuListed(goodsBySKC map[int64]temu.GoodsSummary, skcID, skuID int64) bool {
+	goods, ok := goodsBySKC[skcID]
+	if !ok {
+		return false
+	}
+	for _, sku := range goods.ProductSKUSummaries {
+		if sku.ProductSKUID == skuID {
+			return true
+		}
+	}
+	return false
 }
