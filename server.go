@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type APIServer struct {
 	store     *Store
 	syncer    *Syncer
 	marketing *marketing.Syncer
+	observer  *marketing.ActivityObserver
 	logger    *slog.Logger
 	timezone  string
 	static    fs.FS
@@ -38,12 +40,12 @@ type apiResponse struct {
 	Meta    any    `json:"meta,omitempty"`
 }
 
-func newAPIServer(store *Store, syncer *Syncer, marketingSyncer *marketing.Syncer, timezone string, logger *slog.Logger) (*APIServer, error) {
+func newAPIServer(store *Store, syncer *Syncer, marketingSyncer *marketing.Syncer, observer *marketing.ActivityObserver, timezone string, logger *slog.Logger) (*APIServer, error) {
 	static, err := fs.Sub(webFiles, "web")
 	if err != nil {
 		return nil, err
 	}
-	return &APIServer{store: store, syncer: syncer, marketing: marketingSyncer, timezone: timezone, logger: logger, static: static}, nil
+	return &APIServer{store: store, syncer: syncer, marketing: marketingSyncer, observer: observer, timezone: timezone, logger: logger, static: static}, nil
 }
 
 func (s *APIServer) Handler() http.Handler {
@@ -59,7 +61,6 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/marketing/effective-prices", s.effectiveActivityPrices)
 	mux.HandleFunc("GET /api/marketing/activity-snapshot", s.activitySnapshotRows)
 	mux.HandleFunc("GET /api/marketing/skc-activity-states", s.skcActivityStates)
-	mux.HandleFunc("GET /api/marketing/skc-activity-states/{skcID}/history", s.skcActivityStateHistory)
 	mux.HandleFunc("GET /api/marketing/sku-price-snapshot", s.skuPriceSnapshot)
 	mux.HandleFunc("GET /api/marketing/sku-price-snapshot/{skuID}/history", s.skuPriceSnapshotHistory)
 	mux.HandleFunc("GET /", s.serveStatic)
@@ -86,9 +87,10 @@ func (s *APIServer) activitySnapshotRows(writer http.ResponseWriter, request *ht
 		return
 	}
 	stateCounts := map[string]int{}
-	if view, observationErr := s.store.activityObservationForSnapshot(request.Context(), snapshot.CompletedAt); observationErr == nil {
+	if s.observer != nil {
+		view := s.observer.Latest()
 		for index := range items {
-			observation := view.Enrollments[activityEnrollmentKey{EnrollID: items[index].EnrollID, SKCID: items[index].SKCID}]
+			observation := view.Enrollments[marketing.EnrollmentObservationKey{EnrollID: items[index].EnrollID, SKCID: items[index].SKCID}]
 			items[index].PreviousRemainingActivityStock = observation.PreviousRemainingActivityStock
 			items[index].IntervalConsumedStock = observation.IntervalConsumedStock
 			items[index].IntervalIncreasedStock = observation.IntervalIncreasedStock
@@ -107,8 +109,6 @@ func (s *APIServer) activitySnapshotRows(writer http.ResponseWriter, request *ht
 		for _, state := range view.States {
 			stateCounts[state.Status]++
 		}
-	} else if !errors.Is(observationErr, sql.ErrNoRows) {
-		s.logger.Warn("load activity observation state", "error", observationErr)
 	}
 	page := normalizedPage(queryInt(request, "page", 1), 1, 100000)
 	pageSize := normalizedPage(queryInt(request, "page_size", 1000), 1000, 1000)
@@ -121,27 +121,17 @@ func (s *APIServer) activitySnapshotRows(writer http.ResponseWriter, request *ht
 }
 
 func (s *APIServer) skcActivityStates(writer http.ResponseWriter, request *http.Request) {
-	states, err := s.store.latestSKCActivityStates(request.Context())
-	if err != nil {
-		s.internalError(writer, "load SKC activity states", err)
+	if s.observer == nil {
+		writeJSON(writer, http.StatusServiceUnavailable, apiResponse{Success: false, Error: "活动状态观测未启用"})
 		return
 	}
+	latest := s.observer.Latest()
+	states := make([]marketing.SKCActivityState, 0, len(latest.States))
+	for _, state := range latest.States {
+		states = append(states, state)
+	}
+	sort.Slice(states, func(left, right int) bool { return states[left].SKCID < states[right].SKCID })
 	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: states, Meta: map[string]any{"total": len(states)}})
-}
-
-func (s *APIServer) skcActivityStateHistory(writer http.ResponseWriter, request *http.Request) {
-	skcID, err := strconv.ParseInt(request.PathValue("skcID"), 10, 64)
-	if err != nil || skcID <= 0 {
-		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "skcID must be a positive integer"})
-		return
-	}
-	limit := normalizedPage(queryInt(request, "limit", 120), 120, 1440)
-	states, err := s.store.skcActivityStateHistory(request.Context(), skcID, limit)
-	if err != nil {
-		s.internalError(writer, "load SKC activity state history", err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: states, Meta: map[string]any{"total": len(states), "skc_id": skcID}})
 }
 
 func (s *APIServer) skuPriceSnapshot(writer http.ResponseWriter, request *http.Request) {

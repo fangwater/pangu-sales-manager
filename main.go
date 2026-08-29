@@ -39,6 +39,7 @@ func main() {
 	syncer := newSyncer(config, store, logger)
 	defer syncer.Close()
 	var marketingSyncer *marketing.Syncer
+	var marketingObserver *marketing.ActivityObserver
 	if config.MarketingEnabled {
 		client := temu.NewClient(config.MarketingAPIBaseURL, config.MarketingAppKey, config.MarketingAppSecret, config.MarketingAccessToken, config.MarketingRequestTimeout)
 		if err := client.SetRequestInterval(config.MarketingRequestInterval); err != nil {
@@ -46,6 +47,7 @@ func main() {
 			os.Exit(1)
 		}
 		marketingSyncer = marketing.NewSyncer(client)
+		marketingObserver = marketing.NewActivityObserver()
 	}
 
 	if *syncOnce {
@@ -57,7 +59,7 @@ func main() {
 		return
 	}
 
-	api, err := newAPIServer(store, syncer, marketingSyncer, config.BusinessTimezone, logger)
+	api, err := newAPIServer(store, syncer, marketingSyncer, marketingObserver, config.BusinessTimezone, logger)
 	if err != nil {
 		logger.Error("initialize HTTP server", "error", err)
 		os.Exit(1)
@@ -70,7 +72,7 @@ func main() {
 
 	go scheduleSync(ctx, syncer, config.SyncInterval, logger)
 	if marketingSyncer != nil {
-		go scheduleMarketingSync(ctx, marketingSyncer, store, config.MarketingSyncInterval, config.MarketingRequestTimeout*4, logger)
+		go scheduleMarketingSync(ctx, marketingSyncer, marketingObserver, store, config.MarketingSyncInterval, config.MarketingRequestTimeout*4, logger)
 	} else {
 		logger.Info("Temu activity price sync disabled")
 	}
@@ -90,7 +92,7 @@ func main() {
 	}
 }
 
-func scheduleMarketingSync(ctx context.Context, syncer *marketing.Syncer, store *Store, interval, timeout time.Duration, logger *slog.Logger) {
+func scheduleMarketingSync(ctx context.Context, syncer *marketing.Syncer, observer *marketing.ActivityObserver, store *Store, interval, timeout time.Duration, logger *slog.Logger) {
 	run := func() {
 		syncCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
@@ -99,12 +101,13 @@ func scheduleMarketingSync(ctx context.Context, syncer *marketing.Syncer, store 
 			logger.Warn("Temu current activity price sync failed", "error", err, "enrollments", len(snapshot.Enrollments), "pages", snapshot.EnrollmentPages)
 			return
 		}
-		snapshotID, err := store.recordTemuActivitySnapshot(syncCtx, snapshot)
+		observation := observer.Observe(snapshot)
+		err = store.updateTemuSKUPriceIntervals(syncCtx, snapshot.CompletedAt, observation.SKUPrices)
 		if err != nil {
-			logger.Error("Temu activity snapshot persistence failed", "error", err, "enrollments", len(snapshot.Enrollments))
+			logger.Error("Temu SKU price interval persistence failed", "error", err, "prices", len(observation.SKUPrices))
 			return
 		}
-		logger.Info("Temu current activity price sync completed", "snapshot_id", snapshotID, "enrollments", len(snapshot.Enrollments), "enrollment_pages", snapshot.EnrollmentPages, "goods_skcs", len(snapshot.GoodsBySKC), "goods_pages", snapshot.GoodsPages)
+		logger.Info("Temu current activity price sync completed", "enrollments", len(snapshot.Enrollments), "enrollment_pages", snapshot.EnrollmentPages, "goods_skcs", len(snapshot.GoodsBySKC), "goods_pages", snapshot.GoodsPages, "sku_prices", len(observation.SKUPrices))
 	}
 	run()
 	ticker := time.NewTicker(interval)
