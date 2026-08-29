@@ -33,8 +33,6 @@ func TestSyncerRequestsAndRetainsOnlyCurrentActivities(t *testing.T) {
 				{"enrollId": 1, "assignSessionList": []map[string]any{{"sessionId": 11, "sessionStatus": 2, "siteId": 100}, {"sessionId": 12, "sessionStatus": 3, "siteId": 200}}, "skcList": []map[string]any{{"skcId": 10, "skuList": []map[string]any{{"skuId": 101, "sitePriceList": []map[string]any{{"siteId": 100, "activityPrice": 500}, {"siteId": 200, "activityPrice": 400}}}}}}},
 				{"enrollId": 2, "assignSessionList": []map[string]any{{"sessionId": 21, "sessionStatus": 3, "siteId": 100}}},
 			}}})
-		case temu.GoodsListAPI:
-			_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "result": map[string]any{"totalCount": 1, "data": []map[string]any{{"productSkcId": 10, "skcSiteStatus": 1, "productSkuSummaries": []map[string]any{{"productSkuId": 101}}}}}})
 		default:
 			t.Errorf("unexpected upstream API %q", payload.Type)
 		}
@@ -46,8 +44,8 @@ func TestSyncerRequestsAndRetainsOnlyCurrentActivities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(requestedTypes) != 2 || requestedTypes[0] != temu.MarketingEnrollmentListAPI || requestedTypes[1] != temu.GoodsListAPI {
-		t.Fatalf("upstream requests = %#v, want only current enrollments and goods", requestedTypes)
+	if len(requestedTypes) != 1 || requestedTypes[0] != temu.MarketingEnrollmentListAPI {
+		t.Fatalf("upstream requests = %#v, want only current enrollments", requestedTypes)
 	}
 	if len(snapshot.Enrollments) != 1 || snapshot.Enrollments[0].EnrollID != 1 {
 		t.Fatalf("current enrollments = %#v", snapshot.Enrollments)

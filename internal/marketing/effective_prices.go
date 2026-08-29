@@ -71,9 +71,6 @@ func (s *Syncer) EffectivePrices(filter EffectivePriceFilter) ([]EffectiveActivi
 					if filter.SKUID != 0 && sku.SKUID != filter.SKUID {
 						continue
 					}
-					if !skuOnShelf(snapshot.GoodsBySKC, skc.SKCID, sku.SKUID) {
-						continue
-					}
 					for _, sitePrice := range sku.SitePriceList {
 						if sitePrice.SiteID != session.SiteID || (filter.SiteID != 0 && sitePrice.SiteID != filter.SiteID) {
 							continue
@@ -122,19 +119,6 @@ func (s *Syncer) EffectivePrices(filter EffectivePriceFilter) ([]EffectiveActivi
 		return items[left].SiteID < items[right].SiteID
 	})
 	return items, snapshot, nil
-}
-
-func skuOnShelf(goodsBySKC map[int64]temu.GoodsSummary, skcID, skuID int64) bool {
-	goods, ok := goodsBySKC[skcID]
-	if !ok || goods.SKCSiteStatus != temu.SKCSiteStatusOnShelf {
-		return false
-	}
-	for _, sku := range goods.ProductSKUSummaries {
-		if sku.ProductSKUID == skuID {
-			return true
-		}
-	}
-	return false
 }
 
 func activeActivity(enrollment temu.MarketingEnrollment, session temu.MarketingEnrollmentSession, sitePrice temu.MarketingEnrollmentPrice) ActiveActivity {

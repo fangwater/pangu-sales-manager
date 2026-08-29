@@ -43,7 +43,7 @@ func loadConfig() (Config, error) {
 		MarketingAccessToken:     os.Getenv("TEMU_MARKETING_ACCESS_TOKEN"),
 		MarketingAppKey:          os.Getenv("TEMU_MARKETING_APP_KEY"),
 		MarketingAppSecret:       os.Getenv("TEMU_MARKETING_APP_SECRET"),
-		MarketingSyncInterval:    durationOr("TEMU_MARKETING_SYNC_INTERVAL", 30*time.Minute),
+		MarketingSyncInterval:    durationOr("TEMU_MARKETING_SYNC_INTERVAL", time.Minute),
 		MarketingRequestInterval: durationOr("TEMU_MARKETING_REQUEST_INTERVAL", 2*time.Second),
 		MarketingRequestTimeout:  durationOr("TEMU_MARKETING_REQUEST_TIMEOUT", 30*time.Second),
 	}

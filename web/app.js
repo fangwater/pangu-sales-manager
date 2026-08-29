@@ -104,7 +104,7 @@ async function loadActivityPrices() {
   const body = document.getElementById("activity-price-body");
   const refresh = document.getElementById("activity-refresh");
   const search = document.getElementById("activity-search");
-  body.innerHTML = emptyRow(9, "正在读取活动报名与库存");
+  body.innerHTML = emptyRow(8, "正在读取活动报名与库存");
   refresh.classList.add("syncing");
   refresh.disabled = true;
   search.disabled = true;
@@ -136,7 +136,7 @@ async function loadActivityPrices() {
     if (error.name === "AbortError") return;
     activity.items = [];
     activity.loaded = false;
-    body.innerHTML = emptyRow(9, error.message);
+    body.innerHTML = emptyRow(8, error.message);
     setText("activity-result-summary", "活动快照读取失败");
     setText("activity-page-summary", "--");
     document.getElementById("activity-export").disabled = true;
@@ -167,7 +167,7 @@ function renderActivityPrices() {
 
   const start = (activity.page - 1) * activity.pageSize;
   const rows = activity.items.slice(start, start + activity.pageSize);
-  document.getElementById("activity-price-body").innerHTML = rows.map(activityPriceRow).join("") || emptyRow(9, "当前条件下没有活动报名明细");
+  document.getElementById("activity-price-body").innerHTML = rows.map(activityPriceRow).join("") || emptyRow(8, "当前条件下没有活动报名明细");
   const pageCount = Math.max(1, Math.ceil(activity.items.length / activity.pageSize));
   setText("activity-page", String(activity.page));
   setText("activity-page-summary", `第 ${activity.page} / ${pageCount} 页 · 共 ${activity.items.length} 条`);
@@ -196,7 +196,6 @@ function activityPriceRow(item) {
     <td class="stock-cell"><div class="stock-values"><strong>${formatNumber(remainingStock)}</strong><span>/ ${formatNumber(totalStock)}</span></div><div class="stock-track"><i style="width:${stockRate}%"></i></div><small>剩余 / 报名总量</small></td>
     <td><span class="stock-change ${consumedStock > 0 ? "changed" : ""}">${consumedStock > 0 ? `-${formatNumber(consumedStock)}` : "0"}</span><span class="sku-name">总量 - 当前剩余</span></td>
     <td><span class="session-time">${escapeHtml(timeRange)}</span><span class="sku-name">报名 ${formatActivityTime(item.enroll_time)}</span></td>
-    <td>${goodsStatusHTML(item)}</td>
   </tr>`;
 }
 
@@ -216,12 +215,6 @@ function sessionStatusLabel(status) {
   if (Number(status) === 3) return "场次 3 · 已结束";
   if (Number(status) === 1) return "场次 1 · 未开始";
   return `场次状态 ${status || "--"}`;
-}
-
-function goodsStatusHTML(item) {
-  if (!item.goods_record_loaded) return `<span class="badge insufficient">未拉当前商品</span><span class="sku-name">非进行中活动不查询商品</span>`;
-  const skcOnShelf = Number(item.skc_site_status) === 1;
-  return `<span class="badge ${skcOnShelf ? "high" : "insufficient"}">${skcOnShelf ? "SKC 在售" : `SKC 状态 ${escapeHtml(item.skc_site_status)}`}</span><span class="status-secondary">${item.sku_listed_in_current_goods ? "SKU 当前存在" : "SKU 当前未返回"}</span>`;
 }
 
 function populateActivitySites(selected) {
@@ -256,14 +249,13 @@ function changeActivityPage(delta) {
 function exportActivityPrices() {
   const activity = state.activity;
   if (!activity.items.length) return;
-  const headers = ["enroll_id", "product_id", "goods_id", "activity_type", "activity_type_name", "activity_thematic_id", "activity_thematic_name", "enroll_status", "sold_status", "enroll_time", "activity_stock", "remaining_activity_stock", "consumed_activity_stock", "enrollment_sku_count", "skc_id", "sku_id", "currency", "site_id", "site_name", "site_daily_price", "site_activity_price", "session_id", "session_name", "session_status", "session_start_time", "session_end_time", "goods_record_loaded", "skc_site_status", "sku_listed_in_current_goods", "snapshot_synced_at"];
+  const headers = ["enroll_id", "product_id", "goods_id", "activity_type", "activity_type_name", "activity_thematic_id", "activity_thematic_name", "enroll_status", "sold_status", "enroll_time", "activity_stock", "remaining_activity_stock", "consumed_activity_stock", "enrollment_sku_count", "skc_id", "sku_id", "currency", "site_id", "site_name", "site_daily_price", "site_activity_price", "session_id", "session_name", "session_status", "session_start_time", "session_end_time", "snapshot_synced_at"];
   const rows = activity.items.map(item => [item.enroll_id, item.product_id, item.goods_id, item.activity_type, item.activity_type_name,
     item.activity_thematic_id, item.activity_thematic_name, item.enroll_status, item.sold_status, item.enroll_time,
     item.activity_stock, item.remaining_activity_stock, item.consumed_activity_stock, item.enrollment_sku_count,
     item.skc_id, item.sku_id, item.currency, item.site_id, item.site_name,
     Number(item.site_daily_price || 0) / 100, Number(item.site_activity_price || 0) / 100, item.session_id, item.session_name,
-    item.session_status, item.session_start_time, item.session_end_time, item.goods_record_loaded, item.skc_site_status,
-    item.sku_listed_in_current_goods, activity.meta.synced_at || ""]);
+    item.session_status, item.session_start_time, item.session_end_time, activity.meta.synced_at || ""]);
   const csv = [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\n");
   const link = document.createElement("a");
   link.href = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" }));

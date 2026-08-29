@@ -12,11 +12,7 @@ func TestActivityRowsExposeEnrollmentStockSessionsAndEveryPriceLayer(t *testing.
 	now := time.Date(2026, 8, 29, 8, 0, 0, 0, time.UTC)
 	syncer.publish(Snapshot{
 		StartedAt: now.Add(-time.Second), CompletedAt: now,
-		EnrollmentPages: 1, GoodsPages: 1,
-		GoodsBySKC: map[int64]temu.GoodsSummary{10: {
-			ProductSKCID: 10, SKCSiteStatus: temu.SKCSiteStatusOnShelf,
-			ProductSKUSummaries: []temu.GoodsSKUInfo{{ProductSKUID: 101}},
-		}},
+		EnrollmentPages: 1,
 		Enrollments: []temu.MarketingEnrollment{{
 			EnrollID: 1, ProductID: 2, ActivityType: 13, ActivityTypeName: "活动",
 			ActivityStock: 100, RemainingActivityStock: 90, EnrollStatus: 4,
@@ -51,10 +47,6 @@ func TestActivityRowsExposeEnrollmentStockSessionsAndEveryPriceLayer(t *testing.
 	if current.SiteDailyPrice != 850 || current.SiteActivityPrice != 650 {
 		t.Fatalf("site price was not preserved: %#v", current)
 	}
-	if !current.GoodsRecordLoaded || current.SKCSiteStatus != temu.SKCSiteStatusOnShelf || !current.SKUListedInCurrentGoods {
-		t.Fatalf("current goods state was not preserved: %#v", current)
-	}
-
 	filtered, _, _, err := syncer.ActivityRows(ActivityRowFilter{SKUID: 101, SiteID: 200})
 	if err != nil || len(filtered) != 1 || filtered[0].SessionID != 12 || filtered[0].SiteActivityPrice != 0 {
 		t.Fatalf("site filter result = %#v, %v", filtered, err)

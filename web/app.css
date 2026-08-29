@@ -150,7 +150,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .activity-filters .field.compact { min-width: 0; display: grid; gap: 3px; }
 .activity-filters input, .activity-filters select { width: 100%; min-width: 0; }
 .activity-filters .primary-command { height: 34px; }
-.activity-table { min-width: 1500px; }
+.activity-table { min-width: 1320px; }
 .activity-table td { height: 64px; vertical-align: middle; }
 .activity-table-wrap { min-height: 300px; }
 .activity-daily-price { color: var(--muted); text-decoration: line-through; }
