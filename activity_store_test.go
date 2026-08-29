@@ -49,7 +49,7 @@ func TestFlattenActivitySnapshotDetectsStockIncrease(t *testing.T) {
 	}
 }
 
-func TestResolveSKUPriceSnapshotsProducesOneResolvedRowPerSKUAndSite(t *testing.T) {
+func TestResolveSKUPriceSnapshotsProducesOneResolvedRowPerSKU(t *testing.T) {
 	records := []skuPriceSnapshotRecord{
 		{EnrollID: 1, SKCID: 10, SKUID: 101, SiteID: 100, Currency: "USD", DailyPrice: 1000, ActivityPrice: 700},
 		{EnrollID: 2, SKCID: 10, SKUID: 101, SiteID: 100, Currency: "USD", DailyPrice: 1000, ActivityPrice: 800},
@@ -59,5 +59,27 @@ func TestResolveSKUPriceSnapshotsProducesOneResolvedRowPerSKUAndSite(t *testing.
 	prices := resolveSKUPriceSnapshots(time.Now(), records, states)
 	if len(prices) != 1 || prices[0].Status != marketing.SKCActivityConfirmed || prices[0].ResolvedPrice != 700 || prices[0].PriceSource != marketing.SKUPriceSourceActivity {
 		t.Fatalf("unexpected resolved SKU prices: %#v", prices)
+	}
+}
+
+func TestSameSKUPriceIntervalDetectsOnlyMaterialChanges(t *testing.T) {
+	existing := marketing.SKUPriceInterval{
+		SKUID: 101, SKCID: 10, Status: marketing.SKCActivityConfirmed,
+		ActiveEnrollID: 1, CandidateEnrollIDs: []int64{1, 2}, Currency: "USD",
+		DailyPrice: 1000, ActivityPrice: 700, Price: 700,
+		PriceSource: marketing.SKUPriceSourceActivity,
+	}
+	state := marketing.SKUPriceState{
+		SKUID: 101, SKCID: 10, Status: marketing.SKCActivityConfirmed,
+		ActiveEnrollID: 1, CandidateEnrollIDs: []int64{1, 2}, Currency: "USD",
+		DailyPrice: 1000, ActivityPrice: 700, ResolvedPrice: 700,
+		PriceSource: marketing.SKUPriceSourceActivity,
+	}
+	if !sameSKUPriceInterval(existing, state) {
+		t.Fatal("unchanged price state was treated as a delta")
+	}
+	state.ResolvedPrice = 699
+	if sameSKUPriceInterval(existing, state) {
+		t.Fatal("price change was not detected")
 	}
 }

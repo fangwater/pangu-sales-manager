@@ -21,7 +21,6 @@ type SKUActivityPricePoint struct {
 type SKUPriceState struct {
 	SKUID              int64     `json:"sku_id"`
 	SKCID              int64     `json:"skc_id"`
-	SiteID             int64     `json:"site_id"`
 	Status             string    `json:"status"`
 	ActiveEnrollID     int64     `json:"active_enroll_id,omitempty"`
 	CandidateEnrollIDs []int64   `json:"candidate_enroll_ids"`
@@ -42,7 +41,6 @@ func ResolveSKUPriceState(now time.Time, skcState SKCActivityState, candidates [
 	}
 	state.SKUID = candidates[0].SKUID
 	state.SKCID = candidates[0].SKCID
-	state.SiteID = candidates[0].SiteID
 	state.Currency = firstPriceCurrency(candidates)
 	state.CandidateEnrollIDs = priceCandidateEnrollIDs(candidates)
 	dailyPrices := uniquePositivePrices(candidates, false)
@@ -94,6 +92,25 @@ func ResolveSKUPriceState(now time.Time, skcState SKCActivityState, candidates [
 		state.Reason += "_daily_price_missing"
 	}
 	return state
+}
+
+type SKUPriceInterval struct {
+	ID                 int64      `json:"id"`
+	SKUID              int64      `json:"sku_id"`
+	SKCID              int64      `json:"skc_id"`
+	Status             string     `json:"status"`
+	ActiveEnrollID     int64      `json:"active_enroll_id,omitempty"`
+	CandidateEnrollIDs []int64    `json:"candidate_enroll_ids"`
+	Currency           string     `json:"currency"`
+	DailyPrice         int64      `json:"daily_price"`
+	ActivityPrice      int64      `json:"activity_price"`
+	Price              int64      `json:"price"`
+	PriceSource        string     `json:"price_source"`
+	Reason             string     `json:"reason,omitempty"`
+	StartAt            time.Time  `json:"start_at"`
+	UpdateAt           time.Time  `json:"update_at"`
+	EndAt              *time.Time `json:"end_at,omitempty"`
+	DurationSeconds    int64      `json:"duration_seconds"`
 }
 
 func uniquePositivePrices(candidates []SKUActivityPricePoint, activity bool) []int64 {

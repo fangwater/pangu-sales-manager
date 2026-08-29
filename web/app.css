@@ -151,7 +151,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .activity-filters input, .activity-filters select { width: 100%; min-width: 0; }
 .activity-filters .primary-command { height: 34px; }
 .activity-table { min-width: 1680px; }
-.sku-price-table { min-width: 1320px; }
+.sku-price-filters { grid-template-columns: repeat(2, minmax(170px, 1fr)) minmax(150px, .8fr) 36px 84px; }
+.sku-price-table { min-width: 1080px; }
 .sku-price-table td { height: 58px; vertical-align: middle; }
 .activity-table td { height: 64px; vertical-align: middle; }
 .activity-table-wrap { min-height: 300px; }

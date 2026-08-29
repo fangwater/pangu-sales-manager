@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -114,20 +115,6 @@ func (s *Store) recordTemuActivitySnapshot(ctx context.Context, snapshot marketi
 			return 0, fmt.Errorf("insert activity enrollment snapshot: %w", err)
 		}
 	}
-	for _, record := range priceRecords {
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO temu_activity_sku_price_snapshots(
-				snapshot_id,enroll_id,skc_id,sku_id,site_id,session_id,
-				currency,daily_price,activity_price
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-			ON CONFLICT DO NOTHING
-		`, snapshotID, record.EnrollID, record.SKCID, record.SKUID, record.SiteID,
-			record.SessionID, record.Currency, record.DailyPrice, record.ActivityPrice)
-		if err != nil {
-			return 0, fmt.Errorf("insert activity SKU price snapshot: %w", err)
-		}
-	}
-
 	pointsBySKC := make(map[int64][]marketing.ActivityStockPoint)
 	for _, record := range enrollmentRecords {
 		pointsBySKC[record.SKCID] = append(pointsBySKC[record.SKCID], marketing.ActivityStockPoint{
@@ -174,20 +161,8 @@ func (s *Store) recordTemuActivitySnapshot(ctx context.Context, snapshot marketi
 	}
 
 	priceStates := resolveSKUPriceSnapshots(snapshot.CompletedAt, priceRecords, statesBySKC)
-	for _, state := range priceStates {
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO temu_sku_price_state_snapshots(
-				snapshot_id,sku_id,skc_id,site_id,status,active_enroll_id,
-				candidate_enroll_ids,currency,daily_price,activity_price,
-				resolved_price,price_source,reason
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		`, snapshotID, state.SKUID, state.SKCID, state.SiteID, state.Status,
-			nullablePositiveInt64(state.ActiveEnrollID), pq.Array(nonNilInt64s(state.CandidateEnrollIDs)),
-			state.Currency, state.DailyPrice, state.ActivityPrice, state.ResolvedPrice,
-			state.PriceSource, state.Reason)
-		if err != nil {
-			return 0, fmt.Errorf("insert SKU price state: %w", err)
-		}
+	if err := updateSKUPriceIntervals(ctx, tx, snapshotID, snapshot.CompletedAt, priceStates); err != nil {
+		return 0, err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -436,61 +411,143 @@ func (s *Store) skcActivityStateHistory(ctx context.Context, skcID int64, limit 
 	return states, rows.Err()
 }
 
-type skuPriceGroupKey struct {
-	SKUID  int64
-	SKCID  int64
-	SiteID int64
-}
-
 func resolveSKUPriceSnapshots(capturedAt time.Time, records []skuPriceSnapshotRecord, states map[int64]marketing.SKCActivityState) []marketing.SKUPriceState {
-	groups := make(map[skuPriceGroupKey][]marketing.SKUActivityPricePoint)
+	groups := make(map[int64][]marketing.SKUActivityPricePoint)
 	for _, record := range records {
-		key := skuPriceGroupKey{SKUID: record.SKUID, SKCID: record.SKCID, SiteID: record.SiteID}
-		groups[key] = append(groups[key], marketing.SKUActivityPricePoint{
+		groups[record.SKUID] = append(groups[record.SKUID], marketing.SKUActivityPricePoint{
 			EnrollID: record.EnrollID, SKCID: record.SKCID, SKUID: record.SKUID,
 			SiteID: record.SiteID, Currency: record.Currency,
 			DailyPrice: record.DailyPrice, ActivityPrice: record.ActivityPrice,
 		})
 	}
-	keys := make([]skuPriceGroupKey, 0, len(groups))
+	keys := make([]int64, 0, len(groups))
 	for key := range groups {
 		keys = append(keys, key)
 	}
-	sort.Slice(keys, func(left, right int) bool {
-		if keys[left].SKUID != keys[right].SKUID {
-			return keys[left].SKUID < keys[right].SKUID
-		}
-		if keys[left].SKCID != keys[right].SKCID {
-			return keys[left].SKCID < keys[right].SKCID
-		}
-		return keys[left].SiteID < keys[right].SiteID
-	})
+	sort.Slice(keys, func(left, right int) bool { return keys[left] < keys[right] })
 	results := make([]marketing.SKUPriceState, 0, len(keys))
-	for _, key := range keys {
-		results = append(results, marketing.ResolveSKUPriceState(capturedAt, states[key.SKCID], groups[key]))
+	for _, skuID := range keys {
+		candidates := groups[skuID]
+		skcIDs := make([]int64, 0, len(candidates))
+		for _, candidate := range candidates {
+			skcIDs = append(skcIDs, candidate.SKCID)
+		}
+		skcIDs = uniqueInt64Values(skcIDs)
+		skcState := states[candidates[0].SKCID]
+		if len(skcIDs) > 1 {
+			skcState = marketing.SKCActivityState{Status: marketing.SKCActivityWarning, Reason: "sku_multiple_skc"}
+		}
+		state := marketing.ResolveSKUPriceState(capturedAt, skcState, candidates)
+		if len(skcIDs) > 1 {
+			state.Status = marketing.SKCActivityWarning
+			state.ActiveEnrollID = 0
+			state.Reason = "sku_multiple_skc"
+		}
+		results = append(results, state)
 	}
 	return results
 }
 
-func (s *Store) latestSKUPriceStates(ctx context.Context, skuID, skcID, siteID int64, status string) ([]marketing.SKUPriceState, error) {
+func updateSKUPriceIntervals(ctx context.Context, tx *sql.Tx, snapshotID int64, capturedAt time.Time, states []marketing.SKUPriceState) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id,sku_id,skc_id,status,active_enroll_id,candidate_enroll_ids,
+			currency,daily_price,activity_price,price,price_source,reason,
+			start_at,update_at,end_at,
+			EXTRACT(EPOCH FROM (COALESCE(end_at,update_at)-start_at))::bigint
+		FROM temu_sku_price_intervals WHERE end_at IS NULL FOR UPDATE
+	`)
+	if err != nil {
+		return err
+	}
+	open := make(map[int64]marketing.SKUPriceInterval)
+	for rows.Next() {
+		interval, err := scanSKUPriceInterval(rows)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		open[interval.SKUID] = interval
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	current := make(map[int64]marketing.SKUPriceState, len(states))
+	for _, state := range states {
+		if state.Status == marketing.SKCActivityConfirmed {
+			state.Reason = ""
+		}
+		current[state.SKUID] = state
+		if existing, ok := open[state.SKUID]; ok {
+			if sameSKUPriceInterval(existing, state) {
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE temu_sku_price_intervals
+					SET update_at=$2,last_snapshot_id=$3 WHERE id=$1
+				`, existing.ID, capturedAt, snapshotID); err != nil {
+					return fmt.Errorf("extend SKU price interval: %w", err)
+				}
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE temu_sku_price_intervals
+				SET update_at=$2,end_at=$2,last_snapshot_id=$3 WHERE id=$1
+			`, existing.ID, capturedAt, snapshotID); err != nil {
+				return fmt.Errorf("close changed SKU price interval: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO temu_sku_price_intervals(
+				sku_id,skc_id,status,active_enroll_id,candidate_enroll_ids,
+				currency,daily_price,activity_price,price,price_source,reason,
+				start_at,update_at,first_snapshot_id,last_snapshot_id
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$13)
+		`, state.SKUID, state.SKCID, state.Status, nullablePositiveInt64(state.ActiveEnrollID),
+			pq.Array(nonNilInt64s(state.CandidateEnrollIDs)), state.Currency, state.DailyPrice,
+			state.ActivityPrice, state.ResolvedPrice, state.PriceSource, state.Reason,
+			capturedAt, snapshotID); err != nil {
+			return fmt.Errorf("insert SKU price interval: %w", err)
+		}
+	}
+	for skuID, existing := range open {
+		if _, ok := current[skuID]; ok {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE temu_sku_price_intervals
+			SET update_at=$2,end_at=$2,last_snapshot_id=$3 WHERE id=$1
+		`, existing.ID, capturedAt, snapshotID); err != nil {
+			return fmt.Errorf("close missing SKU price interval: %w", err)
+		}
+	}
+	return nil
+}
+
+func sameSKUPriceInterval(existing marketing.SKUPriceInterval, state marketing.SKUPriceState) bool {
+	return existing.SKCID == state.SKCID && existing.Status == state.Status &&
+		existing.ActiveEnrollID == state.ActiveEnrollID && slices.Equal(existing.CandidateEnrollIDs, state.CandidateEnrollIDs) &&
+		existing.Currency == state.Currency && existing.DailyPrice == state.DailyPrice &&
+		existing.ActivityPrice == state.ActivityPrice && existing.Price == state.ResolvedPrice &&
+		existing.PriceSource == state.PriceSource && existing.Reason == state.Reason
+}
+
+func (s *Store) latestSKUPriceStates(ctx context.Context, skuID, skcID int64, status string) ([]marketing.SKUPriceInterval, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT ON (p.sku_id,p.skc_id,p.site_id)
-			p.sku_id,p.skc_id,p.site_id,p.status,p.active_enroll_id,
-			p.candidate_enroll_ids,p.currency,p.daily_price,p.activity_price,
-			p.resolved_price,p.price_source,p.reason,r.captured_at
-		FROM temu_sku_price_state_snapshots p
-		JOIN temu_activity_snapshot_runs r ON r.id=p.snapshot_id
-		WHERE ($1::bigint=0 OR p.sku_id=$1::bigint) AND ($2::bigint=0 OR p.skc_id=$2::bigint)
-		  AND ($3::bigint=0 OR p.site_id=$3::bigint) AND ($4::text='' OR p.status=$4::text)
-		ORDER BY p.sku_id,p.skc_id,p.site_id,r.captured_at DESC
-	`, skuID, skcID, siteID, status)
+		SELECT id,sku_id,skc_id,status,active_enroll_id,candidate_enroll_ids,
+			currency,daily_price,activity_price,price,price_source,reason,
+			start_at,update_at,end_at,
+			EXTRACT(EPOCH FROM (COALESCE(end_at,update_at)-start_at))::bigint
+		FROM temu_sku_price_intervals
+		WHERE end_at IS NULL AND ($1::bigint=0 OR sku_id=$1::bigint)
+		  AND ($2::bigint=0 OR skc_id=$2::bigint) AND ($3::text='' OR status=$3::text)
+		ORDER BY sku_id
+	`, skuID, skcID, status)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	states := make([]marketing.SKUPriceState, 0)
+	states := make([]marketing.SKUPriceInterval, 0)
 	for rows.Next() {
-		state, err := scanSKUPriceState(rows)
+		state, err := scanSKUPriceInterval(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -499,23 +556,22 @@ func (s *Store) latestSKUPriceStates(ctx context.Context, skuID, skcID, siteID i
 	return states, rows.Err()
 }
 
-func (s *Store) skuPriceStateHistory(ctx context.Context, skuID int64, limit int) ([]marketing.SKUPriceState, error) {
+func (s *Store) skuPriceStateHistory(ctx context.Context, skuID int64, limit int) ([]marketing.SKUPriceInterval, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT p.sku_id,p.skc_id,p.site_id,p.status,p.active_enroll_id,
-			p.candidate_enroll_ids,p.currency,p.daily_price,p.activity_price,
-			p.resolved_price,p.price_source,p.reason,r.captured_at
-		FROM temu_sku_price_state_snapshots p
-		JOIN temu_activity_snapshot_runs r ON r.id=p.snapshot_id
-		WHERE p.sku_id=$1
-		ORDER BY r.captured_at DESC,p.site_id LIMIT $2
+		SELECT id,sku_id,skc_id,status,active_enroll_id,candidate_enroll_ids,
+			currency,daily_price,activity_price,price,price_source,reason,
+			start_at,update_at,end_at,
+			EXTRACT(EPOCH FROM (COALESCE(end_at,update_at)-start_at))::bigint
+		FROM temu_sku_price_intervals
+		WHERE sku_id=$1 ORDER BY start_at DESC LIMIT $2
 	`, skuID, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	states := make([]marketing.SKUPriceState, 0)
+	states := make([]marketing.SKUPriceInterval, 0)
 	for rows.Next() {
-		state, err := scanSKUPriceState(rows)
+		state, err := scanSKUPriceInterval(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -524,17 +580,22 @@ func (s *Store) skuPriceStateHistory(ctx context.Context, skuID int64, limit int
 	return states, rows.Err()
 }
 
-func scanSKUPriceState(row rowScanner) (marketing.SKUPriceState, error) {
-	var state marketing.SKUPriceState
+func scanSKUPriceInterval(row rowScanner) (marketing.SKUPriceInterval, error) {
+	var state marketing.SKUPriceInterval
 	var active sql.NullInt64
 	var candidates pq.Int64Array
-	err := row.Scan(&state.SKUID, &state.SKCID, &state.SiteID, &state.Status, &active,
+	var end sql.NullTime
+	err := row.Scan(&state.ID, &state.SKUID, &state.SKCID, &state.Status, &active,
 		&candidates, &state.Currency, &state.DailyPrice, &state.ActivityPrice,
-		&state.ResolvedPrice, &state.PriceSource, &state.Reason, &state.CapturedAt)
+		&state.Price, &state.PriceSource, &state.Reason, &state.StartAt, &state.UpdateAt,
+		&end, &state.DurationSeconds)
 	if active.Valid {
 		state.ActiveEnrollID = active.Int64
 	}
 	state.CandidateEnrollIDs = append([]int64(nil), candidates...)
+	if end.Valid {
+		state.EndAt = &end.Time
+	}
 	return state, err
 }
 
@@ -578,4 +639,18 @@ func nonNilInt64s(values []int64) []int64 {
 		return []int64{}
 	}
 	return values
+}
+
+func uniqueInt64Values(values []int64) []int64 {
+	sort.Slice(values, func(left, right int) bool { return values[left] < values[right] })
+	if len(values) == 0 {
+		return values
+	}
+	result := values[:1]
+	for _, value := range values[1:] {
+		if value != result[len(result)-1] {
+			result = append(result, value)
+		}
+	}
+	return result
 }

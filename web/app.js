@@ -314,9 +314,8 @@ function exportActivityPrices() {
 async function loadSKUPrices() {
   const skuID = cleanPositiveID(document.getElementById("sku-price-sku-filter").value);
   const skcID = cleanPositiveID(document.getElementById("sku-price-skc-filter").value);
-  const siteID = cleanPositiveID(document.getElementById("sku-price-site-filter").value);
   const status = document.getElementById("sku-price-status-filter").value;
-  if (skuID === null || skcID === null || siteID === null) {
+  if (skuID === null || skcID === null) {
     showError("SKU 价格筛选条件必须是正整数");
     return;
   }
@@ -326,7 +325,7 @@ async function loadSKUPrices() {
   prices.controller = controller;
   const refresh = document.getElementById("sku-price-refresh");
   const search = document.getElementById("sku-price-search");
-  document.getElementById("sku-price-body").innerHTML = emptyRow(10, "正在读取 SKU 价格");
+  document.getElementById("sku-price-body").innerHTML = emptyRow(8, "正在读取 SKU 价格");
   refresh.classList.add("syncing");
   refresh.disabled = true;
   search.disabled = true;
@@ -334,7 +333,6 @@ async function loadSKUPrices() {
     const query = new URLSearchParams();
     if (skuID) query.set("sku_id", skuID);
     if (skcID) query.set("skc_id", skcID);
-    if (siteID) query.set("site_id", siteID);
     if (status) query.set("status", status);
     const response = await api(`/api/marketing/sku-price-snapshot?${query}`, { signal: controller.signal });
     prices.items = response.data || [];
@@ -347,7 +345,7 @@ async function loadSKUPrices() {
     if (error.name === "AbortError") return;
     prices.items = [];
     prices.loaded = false;
-    document.getElementById("sku-price-body").innerHTML = emptyRow(10, error.message);
+    document.getElementById("sku-price-body").innerHTML = emptyRow(8, error.message);
     showError(error.message);
   } finally {
     if (prices.controller === controller) {
@@ -362,17 +360,17 @@ async function loadSKUPrices() {
 function renderSKUPrices() {
   const prices = state.skuPrices;
   const counts = prices.meta.status_counts || {};
-  const capturedAt = prices.items[0]?.captured_at;
+  const capturedAt = prices.items[0]?.update_at;
   setText("sku-price-metric-total", formatNumber(prices.items.length));
   setText("sku-price-metric-confirmed", formatNumber(counts.confirmed || 0));
   setText("sku-price-metric-warning", formatNumber(counts.warning || 0));
   setText("sku-price-metric-synced", formatDateTime(capturedAt));
-  setText("sku-price-result-summary", `共 ${prices.items.length} 条 SKU / 站点价格`);
+  setText("sku-price-result-summary", `共 ${prices.items.length} 条 SKU 价格区间`);
   if (state.view === "sku-prices") setText("updated-at", `价格快照 ${formatDateTime(capturedAt)}`);
   document.getElementById("sku-price-export").disabled = prices.items.length === 0;
   const start = (prices.page - 1) * prices.pageSize;
   const rows = prices.items.slice(start, start + prices.pageSize);
-  document.getElementById("sku-price-body").innerHTML = rows.map(skuPriceRow).join("") || emptyRow(10, "当前条件下没有 SKU 价格");
+  document.getElementById("sku-price-body").innerHTML = rows.map(skuPriceRow).join("") || emptyRow(8, "当前条件下没有 SKU 价格");
   const pageCount = Math.max(1, Math.ceil(prices.items.length / prices.pageSize));
   setText("sku-price-page", String(prices.page));
   setText("sku-price-page-summary", `第 ${prices.page} / ${pageCount} 页 · 共 ${prices.items.length} 条`);
@@ -383,17 +381,16 @@ function renderSKUPrices() {
 
 function skuPriceRow(item) {
   const confirmed = item.status === "confirmed";
+  const warningReason = confirmed ? "--" : skuPriceReason(item.reason);
   return `<tr>
     <td><span class="sku-code">SKU ${escapeHtml(item.sku_id)}</span><span class="sku-name">SKC ${escapeHtml(item.skc_id)}</span></td>
-    <td><span class="sku-code">Site ${escapeHtml(item.site_id || "--")}</span></td>
     <td><span class="badge ${confirmed ? "high" : "insufficient"}">${confirmed ? "已确认" : "预警"}</span></td>
-    <td class="num activity-effective-price">${item.resolved_price > 0 ? formatMoney(item.resolved_price, item.currency) : "--"}</td>
+    <td class="num activity-effective-price">${item.price > 0 ? formatMoney(item.price, item.currency) : "--"}</td>
     <td><span class="badge ${item.price_source === "activity" ? "high" : "low"}">${escapeHtml(skuPriceSourceLabel(item.price_source))}</span></td>
-    <td class="num">${item.daily_price > 0 ? formatMoney(item.daily_price, item.currency) : "--"}</td>
-    <td class="num">${item.activity_price > 0 ? formatMoney(item.activity_price, item.currency) : "--"}</td>
     <td><span class="sku-code">${item.active_enroll_id || "--"}</span><span class="sku-name">${item.candidate_enroll_ids?.length || 0} 个候选报名</span></td>
-    <td><span class="state-reason">${escapeHtml(skuPriceReason(item.reason))}</span></td>
-    <td>${formatDateTime(item.captured_at)}</td>
+    <td><span class="sku-code">${formatDateTime(item.start_at)}</span><span class="sku-name">更新 ${formatDateTime(item.update_at)}</span></td>
+    <td>${formatDuration(item.duration_seconds)}</td>
+    <td><span class="state-reason">${escapeHtml(warningReason)}</span></td>
   </tr>`;
 }
 
@@ -415,7 +412,6 @@ function skuPriceReason(reason) {
 function resetSKUPriceFilters() {
   document.getElementById("sku-price-sku-filter").value = "";
   document.getElementById("sku-price-skc-filter").value = "";
-  document.getElementById("sku-price-site-filter").value = "";
   document.getElementById("sku-price-status-filter").value = "";
   loadSKUPrices();
 }
@@ -430,10 +426,10 @@ function changeSKUPricePage(delta) {
 function exportSKUPrices() {
   const items = state.skuPrices.items;
   if (!items.length) return;
-  const headers = ["sku_id", "skc_id", "site_id", "status", "active_enroll_id", "candidate_enroll_ids", "currency", "daily_price", "activity_price", "resolved_price", "price_source", "reason", "captured_at"];
-  const rows = items.map(item => [item.sku_id, item.skc_id, item.site_id, item.status, item.active_enroll_id,
-    (item.candidate_enroll_ids || []).join(" | "), item.currency, Number(item.daily_price || 0) / 100,
-    Number(item.activity_price || 0) / 100, Number(item.resolved_price || 0) / 100, item.price_source, item.reason, item.captured_at]);
+  const headers = ["sku_id", "skc_id", "status", "price", "price_source", "active_enroll_id", "candidate_enroll_ids", "currency", "start_at", "update_at", "end_at", "duration_seconds", "reason"];
+  const rows = items.map(item => [item.sku_id, item.skc_id, item.status, Number(item.price || 0) / 100,
+    item.price_source, item.active_enroll_id, (item.candidate_enroll_ids || []).join(" | "), item.currency,
+    item.start_at, item.update_at, item.end_at || "", item.duration_seconds, item.status === "warning" ? item.reason : ""]);
   const csv = [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\n");
   const link = document.createElement("a");
   link.href = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" }));
@@ -452,6 +448,13 @@ function formatMoney(cents, currency = "USD") {
   const amount = Number(cents || 0) / 100;
   return currency === "USD" ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount) : `${escapeHtml(currency)} ${amount.toFixed(2)}`;
 }
+function formatDuration(seconds) {
+  const value = Math.max(0, Number(seconds || 0));
+  if (value < 60) return `${Math.round(value)} 秒`;
+  if (value < 3600) return `${Math.floor(value / 60)} 分钟`;
+  if (value < 86400) return `${Math.floor(value / 3600)} 小时 ${Math.floor(value % 3600 / 60)} 分钟`;
+  return `${Math.floor(value / 86400)} 天 ${Math.floor(value % 86400 / 3600)} 小时`;
+}
 function formatActivityTime(value) { return value ? new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(Number(value))) : "--"; }
 function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 
@@ -461,7 +464,7 @@ function updateTopbarForView() {
   if (state.view === "activity-prices") {
     setText("updated-at", `活动快照 ${formatDateTime(state.activity.meta.synced_at)}`);
   } else if (state.view === "sku-prices") {
-    setText("updated-at", `价格快照 ${formatDateTime(state.skuPrices.items[0]?.captured_at)}`);
+    setText("updated-at", `价格快照 ${formatDateTime(state.skuPrices.items[0]?.update_at)}`);
   } else if (state.dashboard) {
     setText("updated-at", `更新于 ${formatDateTime(state.dashboard.generated_at)}`);
   }

@@ -148,7 +148,6 @@ func (s *APIServer) skuPriceSnapshot(writer http.ResponseWriter, request *http.R
 	filter := struct {
 		SKUID  int64
 		SKCID  int64
-		SiteID int64
 		Status string
 	}{Status: strings.TrimSpace(request.URL.Query().Get("status"))}
 	var err error
@@ -160,15 +159,11 @@ func (s *APIServer) skuPriceSnapshot(writer http.ResponseWriter, request *http.R
 		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
 		return
 	}
-	if filter.SiteID, err = positiveQueryID(request, "site_id"); err != nil {
-		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
-		return
-	}
 	if filter.Status != "" && filter.Status != marketing.SKCActivityConfirmed && filter.Status != marketing.SKCActivityWarning {
 		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "status must be confirmed or warning"})
 		return
 	}
-	states, err := s.store.latestSKUPriceStates(request.Context(), filter.SKUID, filter.SKCID, filter.SiteID, filter.Status)
+	states, err := s.store.latestSKUPriceStates(request.Context(), filter.SKUID, filter.SKCID, filter.Status)
 	if err != nil {
 		s.internalError(writer, "load SKU price snapshot", err)
 		return

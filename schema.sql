@@ -136,19 +136,6 @@ CREATE TABLE IF NOT EXISTS temu_activity_enrollment_snapshots (
     PRIMARY KEY (snapshot_id, enroll_id, skc_id)
 );
 
-CREATE TABLE IF NOT EXISTS temu_activity_sku_price_snapshots (
-    snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id) ON DELETE CASCADE,
-    enroll_id bigint NOT NULL,
-    skc_id bigint NOT NULL,
-    sku_id bigint NOT NULL,
-    site_id bigint NOT NULL DEFAULT 0,
-    session_id bigint NOT NULL DEFAULT 0,
-    currency text NOT NULL DEFAULT '',
-    daily_price bigint NOT NULL DEFAULT 0,
-    activity_price bigint NOT NULL DEFAULT 0,
-    PRIMARY KEY (snapshot_id, enroll_id, skc_id, sku_id, site_id, session_id)
-);
-
 CREATE TABLE IF NOT EXISTS temu_skc_activity_state_snapshots (
     snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id) ON DELETE CASCADE,
     skc_id bigint NOT NULL,
@@ -164,31 +151,34 @@ CREATE TABLE IF NOT EXISTS temu_skc_activity_state_snapshots (
     PRIMARY KEY (snapshot_id, skc_id)
 );
 
-CREATE TABLE IF NOT EXISTS temu_sku_price_state_snapshots (
-    snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS temu_sku_price_intervals (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     sku_id bigint NOT NULL,
     skc_id bigint NOT NULL,
-    site_id bigint NOT NULL DEFAULT 0,
     status text NOT NULL CHECK (status IN ('confirmed', 'warning')),
     active_enroll_id bigint,
     candidate_enroll_ids bigint[] NOT NULL DEFAULT '{}',
     currency text NOT NULL DEFAULT '',
     daily_price bigint NOT NULL DEFAULT 0,
     activity_price bigint NOT NULL DEFAULT 0,
-    resolved_price bigint NOT NULL DEFAULT 0,
+    price bigint NOT NULL DEFAULT 0,
     price_source text NOT NULL CHECK (price_source IN ('activity', 'daily', 'unresolved')),
     reason text NOT NULL DEFAULT '',
-    PRIMARY KEY (snapshot_id, sku_id, skc_id, site_id)
+    start_at timestamptz NOT NULL,
+    update_at timestamptz NOT NULL,
+    end_at timestamptz,
+    first_snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id),
+    last_snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id)
 );
 
 CREATE INDEX IF NOT EXISTS temu_activity_enrollment_history_idx
     ON temu_activity_enrollment_snapshots (enroll_id, skc_id, snapshot_id DESC);
-CREATE INDEX IF NOT EXISTS temu_activity_sku_price_history_idx
-    ON temu_activity_sku_price_snapshots (sku_id, skc_id, snapshot_id DESC);
 CREATE INDEX IF NOT EXISTS temu_skc_activity_state_history_idx
     ON temu_skc_activity_state_snapshots (skc_id, snapshot_id DESC);
-CREATE INDEX IF NOT EXISTS temu_sku_price_state_history_idx
-    ON temu_sku_price_state_snapshots (sku_id, skc_id, site_id, snapshot_id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS temu_sku_price_intervals_open_idx
+    ON temu_sku_price_intervals (sku_id) WHERE end_at IS NULL;
+CREATE INDEX IF NOT EXISTS temu_sku_price_intervals_history_idx
+    ON temu_sku_price_intervals (sku_id, start_at DESC);
 
 ALTER TABLE temu_skc_activity_state_snapshots
     DROP CONSTRAINT IF EXISTS temu_skc_activity_state_snapshots_status_check;
@@ -198,3 +188,6 @@ WHERE status <> 'confirmed';
 ALTER TABLE temu_skc_activity_state_snapshots
     ADD CONSTRAINT temu_skc_activity_state_snapshots_status_check
     CHECK (status IN ('confirmed', 'warning'));
+
+DROP TABLE IF EXISTS temu_activity_sku_price_snapshots;
+DROP TABLE IF EXISTS temu_sku_price_state_snapshots;
