@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS temu_activity_sku_price_snapshots (
 CREATE TABLE IF NOT EXISTS temu_skc_activity_state_snapshots (
     snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id) ON DELETE CASCADE,
     skc_id bigint NOT NULL,
-    status text NOT NULL CHECK (status IN ('confirmed', 'unknown', 'conflict', 'inactive')),
+    status text NOT NULL CHECK (status IN ('confirmed', 'warning')),
     active_enroll_id bigint,
     previous_active_enroll_id bigint,
     candidate_enroll_ids bigint[] NOT NULL DEFAULT '{}',
@@ -164,9 +164,37 @@ CREATE TABLE IF NOT EXISTS temu_skc_activity_state_snapshots (
     PRIMARY KEY (snapshot_id, skc_id)
 );
 
+CREATE TABLE IF NOT EXISTS temu_sku_price_state_snapshots (
+    snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id) ON DELETE CASCADE,
+    sku_id bigint NOT NULL,
+    skc_id bigint NOT NULL,
+    site_id bigint NOT NULL DEFAULT 0,
+    status text NOT NULL CHECK (status IN ('confirmed', 'warning')),
+    active_enroll_id bigint,
+    candidate_enroll_ids bigint[] NOT NULL DEFAULT '{}',
+    currency text NOT NULL DEFAULT '',
+    daily_price bigint NOT NULL DEFAULT 0,
+    activity_price bigint NOT NULL DEFAULT 0,
+    resolved_price bigint NOT NULL DEFAULT 0,
+    price_source text NOT NULL CHECK (price_source IN ('activity', 'daily', 'unresolved')),
+    reason text NOT NULL DEFAULT '',
+    PRIMARY KEY (snapshot_id, sku_id, skc_id, site_id)
+);
+
 CREATE INDEX IF NOT EXISTS temu_activity_enrollment_history_idx
     ON temu_activity_enrollment_snapshots (enroll_id, skc_id, snapshot_id DESC);
 CREATE INDEX IF NOT EXISTS temu_activity_sku_price_history_idx
     ON temu_activity_sku_price_snapshots (sku_id, skc_id, snapshot_id DESC);
 CREATE INDEX IF NOT EXISTS temu_skc_activity_state_history_idx
     ON temu_skc_activity_state_snapshots (skc_id, snapshot_id DESC);
+CREATE INDEX IF NOT EXISTS temu_sku_price_state_history_idx
+    ON temu_sku_price_state_snapshots (sku_id, skc_id, site_id, snapshot_id DESC);
+
+ALTER TABLE temu_skc_activity_state_snapshots
+    DROP CONSTRAINT IF EXISTS temu_skc_activity_state_snapshots_status_check;
+UPDATE temu_skc_activity_state_snapshots
+SET status='warning'
+WHERE status <> 'confirmed';
+ALTER TABLE temu_skc_activity_state_snapshots
+    ADD CONSTRAINT temu_skc_activity_state_snapshots_status_check
+    CHECK (status IN ('confirmed', 'warning'));

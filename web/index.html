@@ -26,6 +26,7 @@
         <button class="nav-item" data-view="mappings"><i data-lucide="git-compare-arrows"></i><span>SKU 映射</span></button>
         <button class="nav-item" data-view="orders"><i data-lucide="receipt-text"></i><span>标准订单</span></button>
         <button class="nav-item" data-view="activity-prices"><i data-lucide="circle-dollar-sign"></i><span>活动价格</span></button>
+        <button class="nav-item" data-view="sku-prices"><i data-lucide="badge-dollar-sign"></i><span>SKU 价格</span></button>
       </nav>
 
       <div class="source-status" id="source-status">
@@ -200,7 +201,7 @@
         <section class="activity-summary" aria-label="活动价格汇总">
           <div><span>当前 SKC</span><strong id="activity-metric-enrollments">--</strong></div>
           <div><span>已确认生效</span><strong id="activity-metric-results">--</strong></div>
-          <div><span>状态冲突</span><strong id="activity-metric-stock">--</strong></div>
+          <div><span>状态预警</span><strong id="activity-metric-stock">--</strong></div>
           <div><span>最近同步</span><strong class="compact" id="activity-metric-synced">--</strong></div>
         </section>
 
@@ -232,6 +233,47 @@
               <button class="icon-command quiet" id="activity-prev" type="button" title="上一页" aria-label="上一页"><i data-lucide="chevron-left"></i></button>
               <span id="activity-page">1</span>
               <button class="icon-command quiet" id="activity-next" type="button" title="下一页" aria-label="下一页"><i data-lucide="chevron-right"></i></button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-sku-prices">
+        <section class="activity-summary" aria-label="SKU 价格汇总">
+          <div><span>SKU 价格记录</span><strong id="sku-price-metric-total">--</strong></div>
+          <div><span>价格已确认</span><strong id="sku-price-metric-confirmed">--</strong></div>
+          <div><span>价格预警</span><strong id="sku-price-metric-warning">--</strong></div>
+          <div><span>最近快照</span><strong class="compact" id="sku-price-metric-synced">--</strong></div>
+        </section>
+
+        <article class="panel activity-panel">
+          <div class="panel-heading activity-heading">
+            <div><h2>Temu SKU 分钟价格快照</h2><span id="sku-price-result-summary">等待价格快照</span></div>
+            <div class="activity-actions">
+              <button class="text-command" id="sku-price-export" type="button" disabled><i data-lucide="download"></i>导出 CSV</button>
+              <button class="icon-command quiet" id="sku-price-refresh" type="button" title="刷新价格快照" aria-label="刷新价格快照"><i data-lucide="refresh-cw"></i></button>
+            </div>
+          </div>
+          <form class="activity-filters" id="sku-price-filter-form">
+            <label class="field compact"><span>SKU ID</span><input id="sku-price-sku-filter" inputmode="numeric" placeholder="输入 SKU ID"></label>
+            <label class="field compact"><span>SKC ID</span><input id="sku-price-skc-filter" inputmode="numeric" placeholder="输入 SKC ID"></label>
+            <label class="field compact"><span>站点</span><input id="sku-price-site-filter" inputmode="numeric" placeholder="输入站点 ID"></label>
+            <label class="field compact"><span>状态</span><select id="sku-price-status-filter"><option value="">全部状态</option><option value="confirmed">已确认</option><option value="warning">预警</option></select></label>
+            <button class="icon-command quiet" id="sku-price-reset" type="button" title="重置筛选" aria-label="重置筛选"><i data-lucide="rotate-ccw"></i></button>
+            <button class="primary-command" id="sku-price-search" type="submit"><i data-lucide="search"></i>查询</button>
+          </form>
+          <div class="table-wrap activity-table-wrap">
+            <table class="sku-price-table">
+              <thead><tr><th>SKU / SKC</th><th>站点</th><th>价格状态</th><th class="num">解析价格</th><th>价格来源</th><th class="num">日常价</th><th class="num">活动价</th><th>生效报名</th><th>判断原因</th><th>快照时间</th></tr></thead>
+              <tbody id="sku-price-body"><tr class="empty-row"><td colspan="10">正在读取 SKU 价格</td></tr></tbody>
+            </table>
+          </div>
+          <div class="activity-footer">
+            <span id="sku-price-page-summary">--</span>
+            <div class="pager">
+              <button class="icon-command quiet" id="sku-price-prev" type="button" title="上一页" aria-label="上一页"><i data-lucide="chevron-left"></i></button>
+              <span id="sku-price-page">1</span>
+              <button class="icon-command quiet" id="sku-price-next" type="button" title="下一页" aria-label="下一页"><i data-lucide="chevron-right"></i></button>
             </div>
           </div>
         </article>

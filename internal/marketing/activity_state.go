@@ -8,9 +8,7 @@ import (
 
 const (
 	SKCActivityConfirmed = "confirmed"
-	SKCActivityUnknown   = "unknown"
-	SKCActivityConflict  = "conflict"
-	SKCActivityInactive  = "inactive"
+	SKCActivityWarning   = "warning"
 )
 
 type ActivityStockPoint struct {
@@ -38,9 +36,9 @@ func ResolveSKCActivityState(now time.Time, skcID int64, candidates []ActivitySt
 	state := SKCActivityState{SKCID: skcID, CapturedAt: now, StateStartedAt: now}
 	state.CandidateEnrollIDs = uniqueEnrollIDs(candidates)
 	if len(candidates) == 0 {
-		state.Status = SKCActivityInactive
+		state.Status = SKCActivityWarning
 		state.Reason = "no_current_activity"
-		if previous != nil && previous.Status == SKCActivityInactive {
+		if previous != nil && previous.Status == SKCActivityWarning && previous.Reason == "no_current_activity" {
 			state.StateStartedAt = previous.StateStartedAt
 			state.CarriedForward = true
 		}
@@ -69,7 +67,7 @@ func ResolveSKCActivityState(now time.Time, skcID int64, candidates []ActivitySt
 		return state
 	}
 	if len(consuming) > 1 {
-		state.Status = SKCActivityConflict
+		state.Status = SKCActivityWarning
 		state.EvidenceEnrollIDs = consuming
 		state.Reason = "interval_multiple_consumption"
 		if previous != nil {
@@ -90,10 +88,10 @@ func ResolveSKCActivityState(now time.Time, skcID int64, candidates []ActivitySt
 			state.Reason = "carry_forward_no_consumption"
 			return state
 		}
-		if previous.Status == SKCActivityConflict {
+		if previous.Status == SKCActivityWarning && len(previous.EvidenceEnrollIDs) > 1 {
 			evidence := intersectIDs(previous.EvidenceEnrollIDs, state.CandidateEnrollIDs)
 			if len(evidence) > 1 {
-				state.Status = SKCActivityConflict
+				state.Status = SKCActivityWarning
 				state.EvidenceEnrollIDs = evidence
 				state.StateStartedAt = previous.StateStartedAt
 				state.LastEvidenceAt = previous.LastEvidenceAt
@@ -102,11 +100,13 @@ func ResolveSKCActivityState(now time.Time, skcID int64, candidates []ActivitySt
 				return state
 			}
 		}
-		if previous.Status == SKCActivityUnknown && equalIDs(previous.CandidateEnrollIDs, state.CandidateEnrollIDs) {
-			state.Status = SKCActivityUnknown
+		if previous.Status == SKCActivityWarning && equalIDs(previous.CandidateEnrollIDs, state.CandidateEnrollIDs) {
+			state.Status = SKCActivityWarning
 			state.StateStartedAt = previous.StateStartedAt
+			state.EvidenceEnrollIDs = append([]int64(nil), previous.EvidenceEnrollIDs...)
+			state.LastEvidenceAt = previous.LastEvidenceAt
 			state.CarriedForward = true
-			state.Reason = "carry_forward_unknown"
+			state.Reason = "carry_forward_warning"
 			return state
 		}
 	}
@@ -131,12 +131,12 @@ func resolveInitialState(state SKCActivityState, candidates []ActivityStockPoint
 		return state
 	}
 	if len(positive) > 1 {
-		state.Status = SKCActivityConflict
+		state.Status = SKCActivityWarning
 		state.LastEvidenceAt = timePointer(state.CapturedAt)
 		state.Reason = "initial_multiple_cumulative_consumption"
 		return state
 	}
-	state.Status = SKCActivityUnknown
+	state.Status = SKCActivityWarning
 	state.Reason = "initial_no_consumption"
 	return state
 }

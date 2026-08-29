@@ -60,6 +60,8 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/marketing/activity-snapshot", s.activitySnapshotRows)
 	mux.HandleFunc("GET /api/marketing/skc-activity-states", s.skcActivityStates)
 	mux.HandleFunc("GET /api/marketing/skc-activity-states/{skcID}/history", s.skcActivityStateHistory)
+	mux.HandleFunc("GET /api/marketing/sku-price-snapshot", s.skuPriceSnapshot)
+	mux.HandleFunc("GET /api/marketing/sku-price-snapshot/{skuID}/history", s.skuPriceSnapshotHistory)
 	mux.HandleFunc("GET /", s.serveStatic)
 	return s.middleware(mux)
 }
@@ -140,6 +142,57 @@ func (s *APIServer) skcActivityStateHistory(writer http.ResponseWriter, request 
 		return
 	}
 	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: states, Meta: map[string]any{"total": len(states), "skc_id": skcID}})
+}
+
+func (s *APIServer) skuPriceSnapshot(writer http.ResponseWriter, request *http.Request) {
+	filter := struct {
+		SKUID  int64
+		SKCID  int64
+		SiteID int64
+		Status string
+	}{Status: strings.TrimSpace(request.URL.Query().Get("status"))}
+	var err error
+	if filter.SKUID, err = positiveQueryID(request, "sku_id"); err != nil {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
+		return
+	}
+	if filter.SKCID, err = positiveQueryID(request, "skc_id"); err != nil {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
+		return
+	}
+	if filter.SiteID, err = positiveQueryID(request, "site_id"); err != nil {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
+		return
+	}
+	if filter.Status != "" && filter.Status != marketing.SKCActivityConfirmed && filter.Status != marketing.SKCActivityWarning {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "status must be confirmed or warning"})
+		return
+	}
+	states, err := s.store.latestSKUPriceStates(request.Context(), filter.SKUID, filter.SKCID, filter.SiteID, filter.Status)
+	if err != nil {
+		s.internalError(writer, "load SKU price snapshot", err)
+		return
+	}
+	counts := map[string]int{}
+	for _, state := range states {
+		counts[state.Status]++
+	}
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: states, Meta: map[string]any{"total": len(states), "status_counts": counts}})
+}
+
+func (s *APIServer) skuPriceSnapshotHistory(writer http.ResponseWriter, request *http.Request) {
+	skuID, err := strconv.ParseInt(request.PathValue("skuID"), 10, 64)
+	if err != nil || skuID <= 0 {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "skuID must be a positive integer"})
+		return
+	}
+	limit := normalizedPage(queryInt(request, "limit", 120), 120, 1440)
+	states, err := s.store.skuPriceStateHistory(request.Context(), skuID, limit)
+	if err != nil {
+		s.internalError(writer, "load SKU price history", err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: states, Meta: map[string]any{"total": len(states), "sku_id": skuID}})
 }
 
 func (s *APIServer) effectiveActivityPrices(writer http.ResponseWriter, request *http.Request) {

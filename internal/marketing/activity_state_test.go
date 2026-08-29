@@ -20,7 +20,7 @@ func TestResolveSKCActivityStateInitialConflict(t *testing.T) {
 	state := ResolveSKCActivityState(time.Now(), 10, []ActivityStockPoint{
 		{EnrollID: 1, CumulativeConsumed: 2}, {EnrollID: 2, CumulativeConsumed: 3},
 	}, nil)
-	if state.Status != SKCActivityConflict || len(state.EvidenceEnrollIDs) != 2 {
+	if state.Status != SKCActivityWarning || len(state.EvidenceEnrollIDs) != 2 {
 		t.Fatalf("unexpected conflict state: %#v", state)
 	}
 }
@@ -47,14 +47,14 @@ func TestResolveSKCActivityStateSwitchesOnUniqueIntervalConsumption(t *testing.T
 func TestResolveSKCActivityStateConflictsWhenMultipleActivitiesConsume(t *testing.T) {
 	previous := SKCActivityState{SKCID: 10, Status: SKCActivityConfirmed, ActiveEnrollID: 1}
 	state := ResolveSKCActivityState(time.Now(), 10, []ActivityStockPoint{{EnrollID: 1, IntervalConsumed: 1}, {EnrollID: 2, IntervalConsumed: 2}}, &previous)
-	if state.Status != SKCActivityConflict || len(state.EvidenceEnrollIDs) != 2 || state.ActiveEnrollID != 0 {
+	if state.Status != SKCActivityWarning || len(state.EvidenceEnrollIDs) != 2 || state.ActiveEnrollID != 0 {
 		t.Fatalf("simultaneous consumption was not marked conflict: %#v", state)
 	}
 }
 
 func TestResolveSKCActivityStateUnknownWithoutEvidence(t *testing.T) {
 	state := ResolveSKCActivityState(time.Now(), 10, []ActivityStockPoint{{EnrollID: 1}, {EnrollID: 2}}, nil)
-	if state.Status != SKCActivityUnknown || state.ActiveEnrollID != 0 {
+	if state.Status != SKCActivityWarning || state.ActiveEnrollID != 0 {
 		t.Fatalf("unexpected no-evidence state: %#v", state)
 	}
 }

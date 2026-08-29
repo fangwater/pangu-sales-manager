@@ -30,7 +30,9 @@ Temu 活动价格由同一服务直接拉取并计算，只在进程内保留最
 
 活动同步请求 Temu 当前活动报名记录并固定传入 `sessionStatus=2`，随后查询这些活动 SKC 的当前商品状态；不请求全量活动列表或活动详情。返回后会移除非当前嵌套场次及其站点价格，并使用商品状态排除已下架 SKC 或已从 SKC 移除的 SKU。Temu 的 `activityStock` 与 `remainingActivityStock` 位于报名记录层级；同一报名中的多个 SKU 共享这组库存，不能把单次库存差值直接视为某个 SKU 的销量。
 
-每次成功同步都会将报名库存、SKU 站点价格和 SKC 推断状态写入 PostgreSQL。SKC 首次出现时，如果只有一个活动的 `activityStock - remainingActivityStock` 大于零，就确认该活动；多个活动都有累计消耗时标记冲突，全部为零时保持未知。后续分钟只有一个活动库存下降时确认或切换到该活动，没有下降时延续上一状态，多个活动同时下降时标记冲突。状态值包括 `confirmed`、`unknown`、`conflict` 和 `inactive`。
+每次成功同步都会将报名库存、SKU 站点价格、SKC 推断状态和最终 SKU 解析价格写入 PostgreSQL。SKC 首次出现时，如果只有一个活动的 `activityStock - remainingActivityStock` 大于零，就确认该活动；否则标记预警。后续分钟只有一个活动库存下降时确认或切换到该活动，没有下降时延续上一状态，多个活动同时下降时标记预警。对外状态只有 `confirmed` 和 `warning`，具体原因保存在 `reason`。
+
+SKU 价格快照按 `SKU + SKC + 站点` 生成。SKC 为 `confirmed` 时使用其 `active_enroll_id` 对应的活动价；SKC 为 `warning` 时仅在候选活动的 `dailyPrice` 唯一一致时回退日常价，否则保留 warning 且价格未解析。
 
 ## 主要 API
 
@@ -45,3 +47,5 @@ Temu 活动价格由同一服务直接拉取并计算，只在进程内保留最
 - `GET /api/marketing/activity-snapshot`
 - `GET /api/marketing/skc-activity-states`
 - `GET /api/marketing/skc-activity-states/{skcID}/history?limit=120`
+- `GET /api/marketing/sku-price-snapshot?sku_id=&skc_id=&site_id=&status=`
+- `GET /api/marketing/sku-price-snapshot/{skuID}/history?limit=120`

@@ -13,6 +13,7 @@ const state = {
   charts: {},
   mappingEditing: null,
   activity: { items: [], meta: {}, page: 1, pageSize: 20, loaded: false, sites: new Map(), types: new Map(), controller: null },
+  skuPrices: { items: [], meta: {}, page: 1, pageSize: 30, loaded: false, controller: null },
 };
 
 const viewMeta = {
@@ -22,6 +23,7 @@ const viewMeta = {
   mappings: ["SKU 映射", "平台 SKU 到仓库 SKU"],
   orders: ["标准订单", "跨平台统一订单结构"],
   "activity-prices": ["活动价格", "TEMU 当前报名活动生效结果"],
+  "sku-prices": ["SKU 价格", "TEMU 分钟价格解析结果"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -63,6 +65,12 @@ function bindEvents() {
   document.getElementById("activity-export").addEventListener("click", exportActivityPrices);
   document.getElementById("activity-prev").addEventListener("click", () => changeActivityPage(-1));
   document.getElementById("activity-next").addEventListener("click", () => changeActivityPage(1));
+  document.getElementById("sku-price-filter-form").addEventListener("submit", event => { event.preventDefault(); loadSKUPrices(); });
+  document.getElementById("sku-price-reset").addEventListener("click", resetSKUPriceFilters);
+  document.getElementById("sku-price-refresh").addEventListener("click", loadSKUPrices);
+  document.getElementById("sku-price-export").addEventListener("click", exportSKUPrices);
+  document.getElementById("sku-price-prev").addEventListener("click", () => changeSKUPricePage(-1));
+  document.getElementById("sku-price-next").addEventListener("click", () => changeSKUPricePage(1));
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
 
@@ -72,18 +80,19 @@ async function switchView(view) {
   document.querySelectorAll(".view").forEach(section => section.classList.toggle("active", section.id === `view-${view}`));
   document.getElementById("page-title").textContent = viewMeta[view][0];
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
-  document.getElementById("global-filters").hidden = view === "mappings" || view === "orders" || view === "activity-prices";
+  document.getElementById("global-filters").hidden = view === "mappings" || view === "orders" || view === "activity-prices" || view === "sku-prices";
   if (view === "mappings") await loadMappings();
   if (view === "orders") await loadOrders();
   if (view === "warehouses") renderWarehouseChart();
   if (view === "activity-prices" && !state.activity.loaded) await loadActivityPrices();
+  if (view === "sku-prices" && !state.skuPrices.loaded) await loadSKUPrices();
   updateTopbarForView();
 
   const activeNavigation = document.querySelector(`[data-view="${view}"]`);
   if (activeNavigation && window.innerWidth <= 820) activeNavigation.scrollIntoView({ block: "nearest", inline: "nearest" });
 
   const url = new URL(window.location.href);
-  if (view === "activity-prices") url.searchParams.set("view", view);
+  if (view === "activity-prices" || view === "sku-prices") url.searchParams.set("view", view);
   else url.searchParams.delete("view");
   window.history.replaceState({}, "", url);
 }
@@ -158,7 +167,7 @@ function renderActivityPrices() {
   const skuCount = new Set(activity.items.map(item => item.sku_id)).size;
   setText("activity-metric-enrollments", formatNumber(skcCount));
   setText("activity-metric-results", formatNumber(stateCounts.confirmed || 0));
-  setText("activity-metric-stock", formatNumber(stateCounts.conflict || 0));
+  setText("activity-metric-stock", formatNumber(stateCounts.warning || 0));
   setText("activity-metric-synced", formatDateTime(activity.meta.synced_at));
   setText("activity-result-summary", `共 ${activity.items.length} 行 · ${skcCount} 个 SKC · ${skuCount} 个 SKU`);
   if (state.view === "activity-prices") setText("updated-at", `活动快照 ${formatDateTime(activity.meta.synced_at)}`);
@@ -205,8 +214,7 @@ function activityStatusHTML(item) {
   let badge = '<span class="badge low">状态建立中</span>';
   if (status === "confirmed" && item.selected_effective_activity) badge = '<span class="badge high">已确认生效</span>';
   else if (status === "confirmed") badge = '<span class="badge medium">未选中候选</span>';
-  else if (status === "conflict") badge = '<span class="badge insufficient">库存冲突</span>';
-  else if (status === "unknown") badge = '<span class="badge low">等待库存证据</span>';
+  else if (status === "warning") badge = '<span class="badge insufficient">状态预警</span>';
   return `${badge}<span class="state-reason">${escapeHtml(activityStateReason(item.skc_state_reason))}</span><span class="status-secondary">${escapeHtml(sessionStatusLabel(item.session_status))}</span><span class="status-secondary">报名 ${escapeHtml(item.enroll_status)} · 售罄 ${escapeHtml(item.sold_status)}</span>`;
 }
 
@@ -227,8 +235,8 @@ function activityStateReason(reason) {
     interval_unique_consumption: "本分钟仅该活动库存下降",
     interval_multiple_consumption: "本分钟多个活动库存同时下降",
     carry_forward_no_consumption: "本分钟无变化，沿用上一状态",
-    carry_forward_conflict: "冲突尚未出现唯一新证据",
-    carry_forward_unknown: "仍在等待首次库存消耗",
+    carry_forward_conflict: "多个活动消耗，尚未出现唯一新证据",
+    carry_forward_warning: "预警状态尚未出现唯一新证据",
     no_current_activity: "当前没有活动",
   })[reason] || "等待状态快照";
 }
@@ -303,6 +311,137 @@ function exportActivityPrices() {
   URL.revokeObjectURL(link.href);
 }
 
+async function loadSKUPrices() {
+  const skuID = cleanPositiveID(document.getElementById("sku-price-sku-filter").value);
+  const skcID = cleanPositiveID(document.getElementById("sku-price-skc-filter").value);
+  const siteID = cleanPositiveID(document.getElementById("sku-price-site-filter").value);
+  const status = document.getElementById("sku-price-status-filter").value;
+  if (skuID === null || skcID === null || siteID === null) {
+    showError("SKU 价格筛选条件必须是正整数");
+    return;
+  }
+  const prices = state.skuPrices;
+  prices.controller?.abort();
+  const controller = new AbortController();
+  prices.controller = controller;
+  const refresh = document.getElementById("sku-price-refresh");
+  const search = document.getElementById("sku-price-search");
+  document.getElementById("sku-price-body").innerHTML = emptyRow(10, "正在读取 SKU 价格");
+  refresh.classList.add("syncing");
+  refresh.disabled = true;
+  search.disabled = true;
+  try {
+    const query = new URLSearchParams();
+    if (skuID) query.set("sku_id", skuID);
+    if (skcID) query.set("skc_id", skcID);
+    if (siteID) query.set("site_id", siteID);
+    if (status) query.set("status", status);
+    const response = await api(`/api/marketing/sku-price-snapshot?${query}`, { signal: controller.signal });
+    prices.items = response.data || [];
+    prices.meta = response.meta || {};
+    prices.page = 1;
+    prices.loaded = true;
+    renderSKUPrices();
+    showError("");
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    prices.items = [];
+    prices.loaded = false;
+    document.getElementById("sku-price-body").innerHTML = emptyRow(10, error.message);
+    showError(error.message);
+  } finally {
+    if (prices.controller === controller) {
+      prices.controller = null;
+      refresh.classList.remove("syncing");
+      refresh.disabled = false;
+      search.disabled = false;
+    }
+  }
+}
+
+function renderSKUPrices() {
+  const prices = state.skuPrices;
+  const counts = prices.meta.status_counts || {};
+  const capturedAt = prices.items[0]?.captured_at;
+  setText("sku-price-metric-total", formatNumber(prices.items.length));
+  setText("sku-price-metric-confirmed", formatNumber(counts.confirmed || 0));
+  setText("sku-price-metric-warning", formatNumber(counts.warning || 0));
+  setText("sku-price-metric-synced", formatDateTime(capturedAt));
+  setText("sku-price-result-summary", `共 ${prices.items.length} 条 SKU / 站点价格`);
+  if (state.view === "sku-prices") setText("updated-at", `价格快照 ${formatDateTime(capturedAt)}`);
+  document.getElementById("sku-price-export").disabled = prices.items.length === 0;
+  const start = (prices.page - 1) * prices.pageSize;
+  const rows = prices.items.slice(start, start + prices.pageSize);
+  document.getElementById("sku-price-body").innerHTML = rows.map(skuPriceRow).join("") || emptyRow(10, "当前条件下没有 SKU 价格");
+  const pageCount = Math.max(1, Math.ceil(prices.items.length / prices.pageSize));
+  setText("sku-price-page", String(prices.page));
+  setText("sku-price-page-summary", `第 ${prices.page} / ${pageCount} 页 · 共 ${prices.items.length} 条`);
+  document.getElementById("sku-price-prev").disabled = prices.page <= 1;
+  document.getElementById("sku-price-next").disabled = prices.page >= pageCount;
+  lucide.createIcons();
+}
+
+function skuPriceRow(item) {
+  const confirmed = item.status === "confirmed";
+  return `<tr>
+    <td><span class="sku-code">SKU ${escapeHtml(item.sku_id)}</span><span class="sku-name">SKC ${escapeHtml(item.skc_id)}</span></td>
+    <td><span class="sku-code">Site ${escapeHtml(item.site_id || "--")}</span></td>
+    <td><span class="badge ${confirmed ? "high" : "insufficient"}">${confirmed ? "已确认" : "预警"}</span></td>
+    <td class="num activity-effective-price">${item.resolved_price > 0 ? formatMoney(item.resolved_price, item.currency) : "--"}</td>
+    <td><span class="badge ${item.price_source === "activity" ? "high" : "low"}">${escapeHtml(skuPriceSourceLabel(item.price_source))}</span></td>
+    <td class="num">${item.daily_price > 0 ? formatMoney(item.daily_price, item.currency) : "--"}</td>
+    <td class="num">${item.activity_price > 0 ? formatMoney(item.activity_price, item.currency) : "--"}</td>
+    <td><span class="sku-code">${item.active_enroll_id || "--"}</span><span class="sku-name">${item.candidate_enroll_ids?.length || 0} 个候选报名</span></td>
+    <td><span class="state-reason">${escapeHtml(skuPriceReason(item.reason))}</span></td>
+    <td>${formatDateTime(item.captured_at)}</td>
+  </tr>`;
+}
+
+function skuPriceSourceLabel(source) {
+  return ({ activity: "活动价", daily: "日常价回退", unresolved: "未解析" })[source] || source;
+}
+
+function skuPriceReason(reason) {
+  return ({
+    confirmed_activity_price: "使用 SKC 已确认活动的活动价",
+    confirmed_activity_price_missing_daily_fallback: "确认活动缺少活动价，回退日常价",
+    confirmed_activity_price_conflict_daily_fallback: "确认活动价格冲突，回退日常价",
+    skc_state_warning_daily_fallback: "SKC 状态预警，回退唯一日常价",
+    skc_state_warning_daily_price_conflict: "SKC 状态预警且日常价不一致",
+    skc_state_warning_daily_price_missing: "SKC 状态预警且缺少日常价",
+  })[reason] || reason;
+}
+
+function resetSKUPriceFilters() {
+  document.getElementById("sku-price-sku-filter").value = "";
+  document.getElementById("sku-price-skc-filter").value = "";
+  document.getElementById("sku-price-site-filter").value = "";
+  document.getElementById("sku-price-status-filter").value = "";
+  loadSKUPrices();
+}
+
+function changeSKUPricePage(delta) {
+  const prices = state.skuPrices;
+  const pageCount = Math.max(1, Math.ceil(prices.items.length / prices.pageSize));
+  prices.page = Math.max(1, Math.min(pageCount, prices.page + delta));
+  renderSKUPrices();
+}
+
+function exportSKUPrices() {
+  const items = state.skuPrices.items;
+  if (!items.length) return;
+  const headers = ["sku_id", "skc_id", "site_id", "status", "active_enroll_id", "candidate_enroll_ids", "currency", "daily_price", "activity_price", "resolved_price", "price_source", "reason", "captured_at"];
+  const rows = items.map(item => [item.sku_id, item.skc_id, item.site_id, item.status, item.active_enroll_id,
+    (item.candidate_enroll_ids || []).join(" | "), item.currency, Number(item.daily_price || 0) / 100,
+    Number(item.activity_price || 0) / 100, Number(item.resolved_price || 0) / 100, item.price_source, item.reason, item.captured_at]);
+  const csv = [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\n");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" }));
+  link.download = `temu-sku-prices-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 function cleanPositiveID(value) {
   const normalized = String(value || "").trim();
   if (!normalized) return "";
@@ -317,10 +456,12 @@ function formatActivityTime(value) { return value ? new Intl.DateTimeFormat("zh-
 function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 
 function updateTopbarForView() {
-  const activityView = state.view === "activity-prices";
-  document.getElementById("sync-button").hidden = activityView;
-  if (activityView) {
+  const snapshotView = state.view === "activity-prices" || state.view === "sku-prices";
+  document.getElementById("sync-button").hidden = snapshotView;
+  if (state.view === "activity-prices") {
     setText("updated-at", `活动快照 ${formatDateTime(state.activity.meta.synced_at)}`);
+  } else if (state.view === "sku-prices") {
+    setText("updated-at", `价格快照 ${formatDateTime(state.skuPrices.items[0]?.captured_at)}`);
   } else if (state.dashboard) {
     setText("updated-at", `更新于 ${formatDateTime(state.dashboard.generated_at)}`);
   }

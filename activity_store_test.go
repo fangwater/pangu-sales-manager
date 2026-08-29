@@ -48,3 +48,16 @@ func TestFlattenActivitySnapshotDetectsStockIncrease(t *testing.T) {
 		t.Fatalf("stock increase was not detected: %#v", enrollments)
 	}
 }
+
+func TestResolveSKUPriceSnapshotsProducesOneResolvedRowPerSKUAndSite(t *testing.T) {
+	records := []skuPriceSnapshotRecord{
+		{EnrollID: 1, SKCID: 10, SKUID: 101, SiteID: 100, Currency: "USD", DailyPrice: 1000, ActivityPrice: 700},
+		{EnrollID: 2, SKCID: 10, SKUID: 101, SiteID: 100, Currency: "USD", DailyPrice: 1000, ActivityPrice: 800},
+	}
+	states := map[int64]marketing.SKCActivityState{10: {SKCID: 10, Status: marketing.SKCActivityConfirmed, ActiveEnrollID: 1}}
+
+	prices := resolveSKUPriceSnapshots(time.Now(), records, states)
+	if len(prices) != 1 || prices[0].Status != marketing.SKCActivityConfirmed || prices[0].ResolvedPrice != 700 || prices[0].PriceSource != marketing.SKUPriceSourceActivity {
+		t.Fatalf("unexpected resolved SKU prices: %#v", prices)
+	}
+}

@@ -140,7 +140,7 @@ func (s *Store) recordTemuActivitySnapshot(ctx context.Context, snapshot marketi
 		stateSKCs[skcID] = struct{}{}
 	}
 	for skcID, previous := range previousStates {
-		if previous.Status != marketing.SKCActivityInactive {
+		if previous.Reason != "no_current_activity" {
 			stateSKCs[skcID] = struct{}{}
 		}
 	}
@@ -149,6 +149,7 @@ func (s *Store) recordTemuActivitySnapshot(ctx context.Context, snapshot marketi
 		skcIDs = append(skcIDs, skcID)
 	}
 	sort.Slice(skcIDs, func(left, right int) bool { return skcIDs[left] < skcIDs[right] })
+	statesBySKC := make(map[int64]marketing.SKCActivityState, len(skcIDs))
 	for _, skcID := range skcIDs {
 		var previous *marketing.SKCActivityState
 		if value, ok := previousStates[skcID]; ok {
@@ -156,6 +157,7 @@ func (s *Store) recordTemuActivitySnapshot(ctx context.Context, snapshot marketi
 			previous = &copy
 		}
 		state := marketing.ResolveSKCActivityState(snapshot.CompletedAt, skcID, pointsBySKC[skcID], previous)
+		statesBySKC[skcID] = state
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO temu_skc_activity_state_snapshots(
 				snapshot_id,skc_id,status,active_enroll_id,previous_active_enroll_id,
@@ -168,6 +170,23 @@ func (s *Store) recordTemuActivitySnapshot(ctx context.Context, snapshot marketi
 			state.CarriedForward, state.Reason)
 		if err != nil {
 			return 0, fmt.Errorf("insert SKC activity state: %w", err)
+		}
+	}
+
+	priceStates := resolveSKUPriceSnapshots(snapshot.CompletedAt, priceRecords, statesBySKC)
+	for _, state := range priceStates {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO temu_sku_price_state_snapshots(
+				snapshot_id,sku_id,skc_id,site_id,status,active_enroll_id,
+				candidate_enroll_ids,currency,daily_price,activity_price,
+				resolved_price,price_source,reason
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		`, snapshotID, state.SKUID, state.SKCID, state.SiteID, state.Status,
+			nullablePositiveInt64(state.ActiveEnrollID), pq.Array(nonNilInt64s(state.CandidateEnrollIDs)),
+			state.Currency, state.DailyPrice, state.ActivityPrice, state.ResolvedPrice,
+			state.PriceSource, state.Reason)
+		if err != nil {
+			return 0, fmt.Errorf("insert SKU price state: %w", err)
 		}
 	}
 
@@ -415,6 +434,108 @@ func (s *Store) skcActivityStateHistory(ctx context.Context, skcID int64, limit 
 		states = append(states, state)
 	}
 	return states, rows.Err()
+}
+
+type skuPriceGroupKey struct {
+	SKUID  int64
+	SKCID  int64
+	SiteID int64
+}
+
+func resolveSKUPriceSnapshots(capturedAt time.Time, records []skuPriceSnapshotRecord, states map[int64]marketing.SKCActivityState) []marketing.SKUPriceState {
+	groups := make(map[skuPriceGroupKey][]marketing.SKUActivityPricePoint)
+	for _, record := range records {
+		key := skuPriceGroupKey{SKUID: record.SKUID, SKCID: record.SKCID, SiteID: record.SiteID}
+		groups[key] = append(groups[key], marketing.SKUActivityPricePoint{
+			EnrollID: record.EnrollID, SKCID: record.SKCID, SKUID: record.SKUID,
+			SiteID: record.SiteID, Currency: record.Currency,
+			DailyPrice: record.DailyPrice, ActivityPrice: record.ActivityPrice,
+		})
+	}
+	keys := make([]skuPriceGroupKey, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(left, right int) bool {
+		if keys[left].SKUID != keys[right].SKUID {
+			return keys[left].SKUID < keys[right].SKUID
+		}
+		if keys[left].SKCID != keys[right].SKCID {
+			return keys[left].SKCID < keys[right].SKCID
+		}
+		return keys[left].SiteID < keys[right].SiteID
+	})
+	results := make([]marketing.SKUPriceState, 0, len(keys))
+	for _, key := range keys {
+		results = append(results, marketing.ResolveSKUPriceState(capturedAt, states[key.SKCID], groups[key]))
+	}
+	return results
+}
+
+func (s *Store) latestSKUPriceStates(ctx context.Context, skuID, skcID, siteID int64, status string) ([]marketing.SKUPriceState, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (p.sku_id,p.skc_id,p.site_id)
+			p.sku_id,p.skc_id,p.site_id,p.status,p.active_enroll_id,
+			p.candidate_enroll_ids,p.currency,p.daily_price,p.activity_price,
+			p.resolved_price,p.price_source,p.reason,r.captured_at
+		FROM temu_sku_price_state_snapshots p
+		JOIN temu_activity_snapshot_runs r ON r.id=p.snapshot_id
+		WHERE ($1::bigint=0 OR p.sku_id=$1::bigint) AND ($2::bigint=0 OR p.skc_id=$2::bigint)
+		  AND ($3::bigint=0 OR p.site_id=$3::bigint) AND ($4::text='' OR p.status=$4::text)
+		ORDER BY p.sku_id,p.skc_id,p.site_id,r.captured_at DESC
+	`, skuID, skcID, siteID, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	states := make([]marketing.SKUPriceState, 0)
+	for rows.Next() {
+		state, err := scanSKUPriceState(rows)
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, rows.Err()
+}
+
+func (s *Store) skuPriceStateHistory(ctx context.Context, skuID int64, limit int) ([]marketing.SKUPriceState, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT p.sku_id,p.skc_id,p.site_id,p.status,p.active_enroll_id,
+			p.candidate_enroll_ids,p.currency,p.daily_price,p.activity_price,
+			p.resolved_price,p.price_source,p.reason,r.captured_at
+		FROM temu_sku_price_state_snapshots p
+		JOIN temu_activity_snapshot_runs r ON r.id=p.snapshot_id
+		WHERE p.sku_id=$1
+		ORDER BY r.captured_at DESC,p.site_id LIMIT $2
+	`, skuID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	states := make([]marketing.SKUPriceState, 0)
+	for rows.Next() {
+		state, err := scanSKUPriceState(rows)
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, rows.Err()
+}
+
+func scanSKUPriceState(row rowScanner) (marketing.SKUPriceState, error) {
+	var state marketing.SKUPriceState
+	var active sql.NullInt64
+	var candidates pq.Int64Array
+	err := row.Scan(&state.SKUID, &state.SKCID, &state.SiteID, &state.Status, &active,
+		&candidates, &state.Currency, &state.DailyPrice, &state.ActivityPrice,
+		&state.ResolvedPrice, &state.PriceSource, &state.Reason, &state.CapturedAt)
+	if active.Valid {
+		state.ActiveEnrollID = active.Int64
+	}
+	state.CandidateEnrollIDs = append([]int64(nil), candidates...)
+	return state, err
 }
 
 func nullablePositiveInt64(value int64) any {
