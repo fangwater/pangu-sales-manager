@@ -12,8 +12,6 @@ func TestActivityRowsExposeEnrollmentStockSessionsAndEveryPriceLayer(t *testing.
 	now := time.Date(2026, 8, 29, 8, 0, 0, 0, time.UTC)
 	syncer.publish(Snapshot{
 		StartedAt: now.Add(-time.Second), CompletedAt: now,
-		Activities:    []temu.MarketingActivity{{ActivityType: 13}},
-		DetailsByType: map[int64]temu.MarketingActivityDetail{13: {}}, DetailErrors: map[int64]string{},
 		EnrollmentPages: 1, GoodsPages: 1,
 		GoodsBySKC: map[int64]temu.GoodsSummary{10: {
 			ProductSKCID: 10, SKCSiteStatus: temu.SKCSiteStatusOnShelf,
@@ -27,10 +25,10 @@ func TestActivityRowsExposeEnrollmentStockSessionsAndEveryPriceLayer(t *testing.
 				{SessionID: 12, SessionStatus: 3, SiteID: 200, SiteName: "加拿大站"},
 			},
 			SKCList: []temu.MarketingEnrollmentSKC{{
-				SKCID: 10, Currency: "USD", DailyPrice: 1000, ActivityPrice: 800,
+				SKCID: 10, Currency: "USD",
 				SKUList: []temu.MarketingEnrollmentSKU{
-					{SKUID: 101, DailyPrice: 900, ActivityPrice: 700, SitePriceList: []temu.MarketingEnrollmentPrice{{SiteID: 100, SiteName: "美国站", DailyPrice: 850, ActivityPrice: 650}}},
-					{SKUID: 102, DailyPrice: 950, ActivityPrice: 750, SitePriceList: []temu.MarketingEnrollmentPrice{{SiteID: 200, SiteName: "加拿大站", DailyPrice: 900, ActivityPrice: 700}}},
+					{SKUID: 101, SitePriceList: []temu.MarketingEnrollmentPrice{{SiteID: 100, SiteName: "美国站", DailyPrice: 850, ActivityPrice: 650}}},
+					{SKUID: 102, SitePriceList: []temu.MarketingEnrollmentPrice{{SiteID: 200, SiteName: "加拿大站", DailyPrice: 900, ActivityPrice: 700}}},
 				},
 			}},
 		}},
@@ -50,8 +48,8 @@ func TestActivityRowsExposeEnrollmentStockSessionsAndEveryPriceLayer(t *testing.
 	if current.SiteID != 100 || current.SessionID != 11 || current.EnrollmentSKUCount != 2 || current.ConsumedActivityStock != 10 {
 		t.Fatalf("activity/session/stock fields were not preserved: %#v", current)
 	}
-	if current.SKCDailyPrice != 1000 || current.SKCActivityPrice != 800 || current.SKUDailyPrice != 900 || current.SKUActivityPrice != 700 || current.SiteDailyPrice != 850 || current.SiteActivityPrice != 650 {
-		t.Fatalf("price layers were not preserved: %#v", current)
+	if current.SiteDailyPrice != 850 || current.SiteActivityPrice != 650 {
+		t.Fatalf("site price was not preserved: %#v", current)
 	}
 	if !current.GoodsRecordLoaded || current.SKCSiteStatus != temu.SKCSiteStatusOnShelf || !current.SKUListedInCurrentGoods {
 		t.Fatalf("current goods state was not preserved: %#v", current)

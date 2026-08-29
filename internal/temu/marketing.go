@@ -2,34 +2,12 @@ package temu
 
 import (
 	"context"
-	"encoding/json"
 )
 
 const (
-	MarketingActivityListAPI   = "bg.marketing.activity.list.get.global"
-	MarketingActivityDetailAPI = "bg.marketing.activity.detail.get.global"
 	MarketingEnrollmentListAPI = "bg.marketing.activity.enroll.list.get.global"
+	CurrentSessionStatus       = 2
 )
-
-type MarketingActivityListResult struct {
-	ActivityList []MarketingActivity `json:"activityList"`
-}
-
-type MarketingActivity struct {
-	ActivityType        int64           `json:"activityType"`
-	ActivityName        string          `json:"activityName"`
-	ActivityCopywriting string          `json:"activityCopywriting"`
-	ActivityTagList     json.RawMessage `json:"activityTagList"`
-	ThematicList        json.RawMessage `json:"activityThematicList"`
-}
-
-type MarketingActivityDetail struct {
-	Requirements json.RawMessage `json:"requirements"`
-	MallAptitude json.RawMessage `json:"mallAptitude"`
-	ThematicInfo json.RawMessage `json:"thematicInfo"`
-	ActivityInfo json.RawMessage `json:"activityInfo"`
-	CanEnroll    *bool           `json:"canEnroll"`
-}
 
 type MarketingEnrollmentListResult struct {
 	Total int                   `json:"total"`
@@ -70,18 +48,14 @@ type MarketingEnrollmentSession struct {
 }
 
 type MarketingEnrollmentSKC struct {
-	SKCID         int64                    `json:"skcId"`
-	Currency      string                   `json:"currency"`
-	DailyPrice    int64                    `json:"dailyPrice"`
-	ActivityPrice int64                    `json:"activityPrice"`
-	SKUList       []MarketingEnrollmentSKU `json:"skuList"`
+	SKCID    int64                    `json:"skcId"`
+	Currency string                   `json:"currency"`
+	SKUList  []MarketingEnrollmentSKU `json:"skuList"`
 }
 
 type MarketingEnrollmentSKU struct {
 	SKUID         int64                      `json:"skuId"`
 	Currency      string                     `json:"currency"`
-	DailyPrice    int64                      `json:"dailyPrice"`
-	ActivityPrice int64                      `json:"activityPrice"`
 	SitePriceList []MarketingEnrollmentPrice `json:"sitePriceList"`
 }
 
@@ -92,22 +66,10 @@ type MarketingEnrollmentPrice struct {
 	ActivityPrice int64  `json:"activityPrice"`
 }
 
-func (c *Client) MarketingActivities(ctx context.Context) (MarketingActivityListResult, error) {
-	var result MarketingActivityListResult
-	_, err := c.Call(ctx, MarketingActivityListAPI, nil, &result)
-	return result, err
-}
-
-func (c *Client) MarketingActivityDetail(ctx context.Context, activityType int64) (MarketingActivityDetail, error) {
-	var result MarketingActivityDetail
-	_, err := c.Call(ctx, MarketingActivityDetailAPI, map[string]any{"activityType": activityType}, &result)
-	return result, err
-}
-
-func (c *Client) MarketingEnrollmentPage(ctx context.Context, pageNo, pageSize int) (MarketingEnrollmentListResult, error) {
+func (c *Client) CurrentMarketingEnrollmentPage(ctx context.Context, pageNo, pageSize int) (MarketingEnrollmentListResult, error) {
 	var result MarketingEnrollmentListResult
 	_, err := c.Call(ctx, MarketingEnrollmentListAPI, map[string]any{
-		"mallId": 0, "pageNo": pageNo, "pageSize": pageSize,
+		"mallId": 0, "pageNo": pageNo, "pageSize": pageSize, "sessionStatus": CurrentSessionStatus,
 	}, &result)
 	return result, err
 }

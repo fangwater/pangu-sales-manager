@@ -21,16 +21,13 @@ const (
 // Snapshot is the latest complete activity pull. It is intentionally kept in
 // process memory and rebuilt after every service restart.
 type Snapshot struct {
-	StartedAt       time.Time                              `json:"started_at"`
-	CompletedAt     time.Time                              `json:"completed_at"`
-	LastError       string                                 `json:"last_error,omitempty"`
-	Activities      []temu.MarketingActivity               `json:"activities"`
-	Enrollments     []temu.MarketingEnrollment             `json:"enrollments"`
-	DetailsByType   map[int64]temu.MarketingActivityDetail `json:"details_by_type"`
-	DetailErrors    map[int64]string                       `json:"detail_errors,omitempty"`
-	EnrollmentPages int                                    `json:"enrollment_pages"`
-	GoodsBySKC      map[int64]temu.GoodsSummary            `json:"goods_by_skc"`
-	GoodsPages      int                                    `json:"goods_pages"`
+	StartedAt       time.Time                   `json:"started_at"`
+	CompletedAt     time.Time                   `json:"completed_at"`
+	LastError       string                      `json:"last_error,omitempty"`
+	Enrollments     []temu.MarketingEnrollment  `json:"enrollments"`
+	EnrollmentPages int                         `json:"enrollment_pages"`
+	GoodsBySKC      map[int64]temu.GoodsSummary `json:"goods_by_skc"`
+	GoodsPages      int                         `json:"goods_pages"`
 }
 
 func (s Snapshot) Successful() bool {
@@ -61,39 +58,21 @@ func (s *Syncer) Sync(ctx context.Context) (Snapshot, error) {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
 
-	snapshot := Snapshot{
-		StartedAt: s.now().UTC(), DetailsByType: make(map[int64]temu.MarketingActivityDetail),
-		DetailErrors: make(map[int64]string), GoodsBySKC: make(map[int64]temu.GoodsSummary),
-	}
-	activities, err := retry(ctx, s.wait, func() (temu.MarketingActivityListResult, error) {
-		return s.client.MarketingActivities(ctx)
-	})
-	if err != nil {
-		return s.finish(snapshot, err)
-	}
-	snapshot.Activities = activities.ActivityList
-
-	activityTypes := make(map[int64]struct{}, len(activities.ActivityList))
-	for _, activity := range activities.ActivityList {
-		if activity.ActivityType != 0 {
-			activityTypes[activity.ActivityType] = struct{}{}
-		}
-	}
+	snapshot := Snapshot{StartedAt: s.now().UTC(), GoodsBySKC: make(map[int64]temu.GoodsSummary)}
 	for pageNo := 1; ; pageNo++ {
 		page, pageErr := retry(ctx, s.wait, func() (temu.MarketingEnrollmentListResult, error) {
-			return s.client.MarketingEnrollmentPage(ctx, pageNo, enrollmentPageSize)
+			return s.client.CurrentMarketingEnrollmentPage(ctx, pageNo, enrollmentPageSize)
 		})
 		if pageErr != nil {
 			return s.finish(snapshot, pageErr)
 		}
 		snapshot.EnrollmentPages++
-		snapshot.Enrollments = append(snapshot.Enrollments, page.List...)
 		for _, enrollment := range page.List {
-			if enrollment.ActivityType != 0 {
-				activityTypes[enrollment.ActivityType] = struct{}{}
+			if current, ok := currentEnrollment(enrollment); ok {
+				snapshot.Enrollments = append(snapshot.Enrollments, current)
 			}
 		}
-		if len(snapshot.Enrollments) >= page.Total || len(page.List) < enrollmentPageSize {
+		if pageNo*enrollmentPageSize >= page.Total || len(page.List) < enrollmentPageSize {
 			break
 		}
 	}
@@ -101,25 +80,38 @@ func (s *Syncer) Sync(ctx context.Context) (Snapshot, error) {
 		return s.finish(snapshot, err)
 	}
 
-	types := make([]int64, 0, len(activityTypes))
-	for activityType := range activityTypes {
-		types = append(types, activityType)
-	}
-	sort.Slice(types, func(left, right int) bool { return types[left] < types[right] })
-	for _, activityType := range types {
-		detail, detailErr := retry(ctx, s.wait, func() (temu.MarketingActivityDetail, error) {
-			return s.client.MarketingActivityDetail(ctx, activityType)
-		})
-		if detailErr != nil {
-			snapshot.DetailErrors[activityType] = detailErr.Error()
-			continue
-		}
-		snapshot.DetailsByType[activityType] = detail
-	}
-
 	snapshot.CompletedAt = s.now().UTC()
 	s.publish(snapshot)
 	return cloneSnapshot(snapshot), nil
+}
+
+func currentEnrollment(enrollment temu.MarketingEnrollment) (temu.MarketingEnrollment, bool) {
+	activeSites := make(map[int64]struct{})
+	sessions := enrollment.AssignedSessions[:0]
+	for _, session := range enrollment.AssignedSessions {
+		if session.SessionStatus != temu.CurrentSessionStatus {
+			continue
+		}
+		sessions = append(sessions, session)
+		activeSites[session.SiteID] = struct{}{}
+	}
+	if len(sessions) == 0 {
+		return temu.MarketingEnrollment{}, false
+	}
+	enrollment.AssignedSessions = sessions
+	for skcIndex := range enrollment.SKCList {
+		for skuIndex := range enrollment.SKCList[skcIndex].SKUList {
+			prices := enrollment.SKCList[skcIndex].SKUList[skuIndex].SitePriceList
+			currentPrices := prices[:0]
+			for _, price := range prices {
+				if _, ok := activeSites[price.SiteID]; ok {
+					currentPrices = append(currentPrices, price)
+				}
+			}
+			enrollment.SKCList[skcIndex].SKUList[skuIndex].SitePriceList = currentPrices
+		}
+	}
+	return enrollment, true
 }
 
 func (s *Syncer) syncCurrentGoods(ctx context.Context, snapshot *Snapshot) error {
@@ -235,16 +227,7 @@ func waitContext(ctx context.Context, delay time.Duration) error {
 
 func cloneSnapshot(source Snapshot) Snapshot {
 	copy := source
-	copy.Activities = append([]temu.MarketingActivity(nil), source.Activities...)
 	copy.Enrollments = append([]temu.MarketingEnrollment(nil), source.Enrollments...)
-	copy.DetailsByType = make(map[int64]temu.MarketingActivityDetail, len(source.DetailsByType))
-	for key, value := range source.DetailsByType {
-		copy.DetailsByType[key] = value
-	}
-	copy.DetailErrors = make(map[int64]string, len(source.DetailErrors))
-	for key, value := range source.DetailErrors {
-		copy.DetailErrors[key] = value
-	}
 	copy.GoodsBySKC = make(map[int64]temu.GoodsSummary, len(source.GoodsBySKC))
 	for key, value := range source.GoodsBySKC {
 		value.ProductSKUSummaries = append([]temu.GoodsSKUInfo(nil), value.ProductSKUSummaries...)
@@ -254,5 +237,5 @@ func cloneSnapshot(source Snapshot) Snapshot {
 }
 
 func (s Snapshot) String() string {
-	return fmt.Sprintf("activities=%d enrollments=%d pages=%d goods_skcs=%d goods_pages=%d details=%d detail_errors=%d", len(s.Activities), len(s.Enrollments), s.EnrollmentPages, len(s.GoodsBySKC), s.GoodsPages, len(s.DetailsByType), len(s.DetailErrors))
+	return fmt.Sprintf("current_enrollments=%d pages=%d goods_skcs=%d goods_pages=%d", len(s.Enrollments), s.EnrollmentPages, len(s.GoodsBySKC), s.GoodsPages)
 }

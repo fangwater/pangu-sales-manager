@@ -32,10 +32,6 @@ type ActivitySnapshotRow struct {
 	SKCID                   int64  `json:"skc_id"`
 	SKUID                   int64  `json:"sku_id"`
 	Currency                string `json:"currency"`
-	SKCDailyPrice           int64  `json:"skc_daily_price"`
-	SKCActivityPrice        int64  `json:"skc_activity_price"`
-	SKUDailyPrice           int64  `json:"sku_daily_price"`
-	SKUActivityPrice        int64  `json:"sku_activity_price"`
 	SiteID                  int64  `json:"site_id"`
 	SiteName                string `json:"site_name"`
 	SiteDailyPrice          int64  `json:"site_daily_price"`
@@ -51,7 +47,6 @@ type ActivitySnapshotRow struct {
 }
 
 type ActivitySnapshotSummary struct {
-	ActivityCount                int   `json:"activity_count"`
 	EnrollmentCount              int   `json:"enrollment_count"`
 	ActiveEnrollmentCount        int   `json:"active_enrollment_count"`
 	StockConsumedEnrollmentCount int   `json:"stock_consumed_enrollment_count"`
@@ -60,8 +55,6 @@ type ActivitySnapshotSummary struct {
 	EnrollmentPages              int   `json:"enrollment_pages"`
 	GoodsSKCCount                int   `json:"goods_skc_count"`
 	GoodsPages                   int   `json:"goods_pages"`
-	ActivityDetailCount          int   `json:"activity_detail_count"`
-	ActivityDetailErrorCount     int   `json:"activity_detail_error_count"`
 }
 
 func (s *Syncer) ActivityRows(filter ActivityRowFilter) ([]ActivitySnapshotRow, ActivitySnapshotSummary, Snapshot, error) {
@@ -103,10 +96,9 @@ func (s *Syncer) ActivityRows(filter ActivityRowFilter) ([]ActivitySnapshotRow, 
 
 func summarizeSnapshot(snapshot Snapshot) ActivitySnapshotSummary {
 	summary := ActivitySnapshotSummary{
-		ActivityCount: len(snapshot.Activities), EnrollmentCount: len(snapshot.Enrollments),
+		EnrollmentCount: len(snapshot.Enrollments),
 		EnrollmentPages: snapshot.EnrollmentPages, GoodsSKCCount: len(snapshot.GoodsBySKC),
-		GoodsPages: snapshot.GoodsPages, ActivityDetailCount: len(snapshot.DetailsByType),
-		ActivityDetailErrorCount: len(snapshot.DetailErrors),
+		GoodsPages: snapshot.GoodsPages,
 	}
 	for _, enrollment := range snapshot.Enrollments {
 		summary.TotalActivityStock += enrollment.ActivityStock
@@ -145,8 +137,6 @@ func enrollmentRows(snapshot Snapshot, enrollment temu.MarketingEnrollment, filt
 		skcRow := base
 		skcRow.SKCID = skc.SKCID
 		skcRow.Currency = firstNonEmpty(skc.Currency, base.Currency)
-		skcRow.SKCDailyPrice = skc.DailyPrice
-		skcRow.SKCActivityPrice = skc.ActivityPrice
 		if goods, ok := snapshot.GoodsBySKC[skc.SKCID]; ok {
 			skcRow.GoodsRecordLoaded = true
 			skcRow.SKCSiteStatus = goods.SKCSiteStatus
@@ -162,8 +152,6 @@ func enrollmentRows(snapshot Snapshot, enrollment temu.MarketingEnrollment, filt
 			skuRow := skcRow
 			skuRow.SKUID = sku.SKUID
 			skuRow.Currency = firstNonEmpty(sku.Currency, skcRow.Currency)
-			skuRow.SKUDailyPrice = sku.DailyPrice
-			skuRow.SKUActivityPrice = sku.ActivityPrice
 			skuRow.SKUListedInCurrentGoods = skuListed(snapshot.GoodsBySKC, skc.SKCID, sku.SKUID)
 			rows = append(rows, rowsForSessions(skuRow, enrollment.AssignedSessions, sku.SitePriceList)...)
 		}

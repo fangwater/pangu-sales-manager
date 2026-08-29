@@ -13,7 +13,6 @@ func TestEffectivePricesUsesLowestCurrentPricePerSKUAndSite(t *testing.T) {
 	now := time.Date(2026, 8, 29, 3, 0, 0, 0, time.UTC)
 	syncer.publish(Snapshot{
 		StartedAt: now.Add(-time.Second), CompletedAt: now,
-		DetailsByType: map[int64]temu.MarketingActivityDetail{}, DetailErrors: map[int64]string{},
 		GoodsBySKC: map[int64]temu.GoodsSummary{10: {
 			ProductSKCID: 10, SKCSiteStatus: temu.SKCSiteStatusOnShelf,
 			ProductSKUSummaries: []temu.GoodsSKUInfo{{ProductSKUID: 101}},

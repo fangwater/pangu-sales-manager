@@ -150,7 +150,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .activity-filters .field.compact { min-width: 0; display: grid; gap: 3px; }
 .activity-filters input, .activity-filters select { width: 100%; min-width: 0; }
 .activity-filters .primary-command { height: 34px; }
-.activity-table { min-width: 1720px; }
+.activity-table { min-width: 1500px; }
 .activity-table td { height: 64px; vertical-align: middle; }
 .activity-table-wrap { min-height: 300px; }
 .activity-daily-price { color: var(--muted); text-decoration: line-through; }
@@ -160,7 +160,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .stock-scope-warning, .stock-scope-single { display: inline-flex; margin-top: 5px; padding: 2px 5px; border-radius: 3px; font-size: 10px; }
 .stock-scope-warning { background: var(--amber-soft); color: #8b5a12; }
 .stock-scope-single { background: var(--surface-soft); color: var(--muted); }
-.price-layers { display: flex; align-items: center; gap: 14px; }
 .price-pair { min-width: 92px; display: grid; grid-template-columns: auto auto; align-items: baseline; column-gap: 8px; row-gap: 2px; font-variant-numeric: tabular-nums; }
 .price-pair small { grid-column: 1 / -1; color: var(--muted); font-size: 9px; }
 .price-pair strong { color: var(--teal); font-size: 12px; }
