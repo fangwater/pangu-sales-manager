@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1f2422">
+  <title>Pangu 销售管理</title>
+  <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./theme.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">盘</div>
+        <div class="brand-copy">
+          <span>PANGU SALES</span>
+        </div>
+      </div>
+
+      <div class="nav-caption">销售管理</div>
+      <nav class="nav-list" aria-label="主导航">
+        <button class="nav-item active" data-view="overview"><i data-lucide="layout-dashboard"></i><span>销售总览</span></button>
+        <button class="nav-item" data-view="skus"><i data-lucide="chart-no-axes-combined"></i><span>SKU 分析</span></button>
+        <button class="nav-item" data-view="warehouses"><i data-lucide="warehouse"></i><span>仓库库存</span></button>
+        <button class="nav-item" data-view="mappings"><i data-lucide="git-compare-arrows"></i><span>SKU 映射</span></button>
+        <button class="nav-item" data-view="orders"><i data-lucide="receipt-text"></i><span>标准订单</span></button>
+        <button class="nav-item" data-view="activity-prices"><i data-lucide="circle-dollar-sign"></i><span>活动价格</span></button>
+      </nav>
+
+      <div class="source-status" id="source-status">
+        <span class="status-dot pending"></span>
+        <div><strong>数据链路</strong><small>正在连接</small></div>
+        <span class="live-mark">LIVE</span>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="page-identity">
+          <h1 id="page-title">销售总览</h1>
+          <p id="page-subtitle">TEMU · SHEIN · XLWMS</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="updated-at" id="updated-at">--</span>
+          <button class="icon-command" id="sync-button" title="立即同步" aria-label="立即同步">
+            <i data-lucide="refresh-cw"></i>
+          </button>
+        </div>
+      </header>
+
+      <section class="filter-band" id="global-filters">
+        <div class="segmented" aria-label="统计周期">
+          <button class="active" data-period="day">日</button>
+          <button data-period="week">周</button>
+          <button data-period="month">月</button>
+        </div>
+        <label class="field compact">
+          <span>平台</span>
+          <select id="platform-filter">
+            <option value="">全部平台</option>
+            <option value="temu">TEMU</option>
+            <option value="shein">SHEIN</option>
+          </select>
+        </label>
+        <label class="field compact">
+          <span>店铺</span>
+          <select id="shop-filter">
+            <option value="">全部店铺</option>
+            <option value="panda-homes" data-platform="temu">Panda Homes</option>
+            <option value="panda-buy" data-platform="temu">Panda Buy</option>
+            <option value="beauty-hangers-home" data-platform="shein">Beauty Hangers Home</option>
+          </select>
+        </label>
+        <label class="field compact">
+          <span>仓库</span>
+          <select id="warehouse-filter"><option value="">全部仓库</option></select>
+        </label>
+        <button class="icon-command quiet" id="reset-filters" title="重置筛选" aria-label="重置筛选"><i data-lucide="rotate-ccw"></i></button>
+      </section>
+
+      <div id="alert-region" class="alert-region" aria-live="polite"></div>
+
+      <section class="view active" id="view-overview">
+        <section class="summary-band">
+          <div class="summary-primary">
+            <span class="summary-kicker" id="summary-period-label">近 14 日仓库换算销量</span>
+            <strong id="metric-units">--</strong>
+            <div class="summary-delta"><span id="metric-growth">--</span><small id="metric-range">--</small></div>
+          </div>
+          <div class="summary-metrics">
+            <div class="summary-metric"><i data-lucide="shopping-bag"></i><span>订单数</span><strong id="metric-orders">--</strong><small>跨平台标准订单</small></div>
+            <div class="summary-metric"><i data-lucide="package-check"></i><span>活跃 SKU</span><strong id="metric-skus">--</strong><small>本期产生销售</small></div>
+            <div class="summary-metric"><i data-lucide="boxes"></i><span>可用库存</span><strong id="metric-stock">--</strong><small>XLWMS 当前快照</small></div>
+            <div class="summary-metric"><i data-lucide="waypoints"></i><span>映射覆盖</span><strong id="metric-coverage">--</strong><small id="metric-mapping-detail">--</small></div>
+          </div>
+        </section>
+
+        <div class="signal-strip">
+          <div class="signal-item"><span class="signal-icon coral"><i data-lucide="trophy"></i></span><div><small>本期领跑</small><strong id="signal-top-sku">--</strong></div></div>
+          <div class="signal-item"><span class="signal-icon cobalt"><i data-lucide="trending-up"></i></span><div><small>增长最快</small><strong id="signal-growth-sku">--</strong></div></div>
+          <div class="signal-item"><span class="signal-icon amber"><i data-lucide="timer-reset"></i></span><div><small>库存最紧</small><strong id="signal-cover-sku">--</strong></div></div>
+        </div>
+
+        <div class="chart-grid">
+          <article class="panel chart-panel">
+            <div class="panel-heading">
+              <div><h2>销售趋势</h2><span>平台销量与仓库换算量</span></div>
+              <div class="legend-inline"><span><i class="legend-dot teal"></i>仓库换算量</span><span><i class="legend-dot blue"></i>订单数</span></div>
+            </div>
+            <div class="chart-frame"><canvas id="sales-chart"></canvas></div>
+          </article>
+          <article class="panel pulse-panel">
+            <div class="panel-heading"><div><h2>经营信号</h2><span>需求与库存的优先级</span></div><span class="sync-cadence">1 MIN</span></div>
+            <div class="demand-list" id="demand-signal-list"></div>
+            <div class="platform-mix">
+              <div class="section-label"><span>平台构成</span><small>仓库换算销量</small></div>
+              <div id="platform-legend" class="platform-legend"></div>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel table-panel">
+          <div class="panel-heading">
+            <div><h2>重点 SKU</h2><span>销量、库存与未来 30 天需求</span></div>
+            <button class="text-command" data-open-view="skus">查看全部<i data-lucide="arrow-right"></i></button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>仓库 SKU</th><th class="num">本期销量</th><th class="num">环比</th><th class="num">可用库存</th><th class="num">库存天数</th><th class="num">30 天预测</th><th>可信度</th></tr></thead>
+              <tbody id="overview-sku-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-skus">
+        <article class="panel table-panel full-height">
+          <div class="panel-heading">
+            <div><h2>SKU 销售与需求预测</h2><span id="sku-count-label">--</span></div>
+            <label class="search-box"><i data-lucide="search"></i><input id="sku-search" type="search" placeholder="搜索仓库 SKU"></label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>仓库 SKU</th><th>商品</th><th class="num">平台件数</th><th class="num">仓库换算量</th><th class="num">7 天预测</th><th class="num">30 天预测</th><th class="num">日均需求</th><th class="num">库存</th><th class="num">可售天数</th><th>可信度</th></tr></thead>
+              <tbody id="sku-table-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-warehouses">
+        <div class="warehouse-grid" id="warehouse-grid"></div>
+        <article class="panel chart-panel warehouse-chart-panel">
+          <div class="panel-heading"><div><h2>仓库库存与销售</h2><span>当前可用库存 / 本期仓库换算销量</span></div></div>
+          <div class="chart-frame"><canvas id="warehouse-chart"></canvas></div>
+        </article>
+      </section>
+
+      <section class="view" id="view-mappings">
+        <article class="panel table-panel full-height">
+          <div class="panel-heading mapping-heading">
+            <div><h2>平台 SKU 映射</h2><span id="mapping-summary">--</span></div>
+            <div class="table-tools">
+              <select id="mapping-status-filter" aria-label="映射状态">
+                <option value="">全部状态</option>
+                <option value="inferred">待确认</option>
+                <option value="mapped">已映射</option>
+                <option value="manual">人工映射</option>
+                <option value="identity">同码映射</option>
+              </select>
+              <label class="search-box"><i data-lucide="search"></i><input id="mapping-search" type="search" placeholder="平台或仓库 SKU"></label>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>平台 / 店铺</th><th>平台 SKU</th><th>仓库 SKU</th><th class="num">换算系数</th><th>状态</th><th>来源</th><th class="action-col"></th></tr></thead>
+              <tbody id="mapping-table-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-orders">
+        <article class="panel table-panel full-height">
+          <div class="panel-heading">
+            <div><h2>标准订单</h2><span id="order-summary">--</span></div>
+            <div class="pager"><button class="icon-command quiet" id="orders-prev" title="上一页" aria-label="上一页"><i data-lucide="chevron-left"></i></button><span id="orders-page">1</span><button class="icon-command quiet" id="orders-next" title="下一页" aria-label="下一页"><i data-lucide="chevron-right"></i></button></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>平台</th><th>标准订单号</th><th>销售时间</th><th>状态</th><th>仓库</th><th class="num">SKU 数</th><th class="num">仓库换算量</th><th>时间口径</th></tr></thead>
+              <tbody id="orders-table-body"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-activity-prices">
+        <section class="activity-summary" aria-label="活动价格汇总">
+          <div><span>命中 SKC</span><strong id="activity-metric-skc">--</strong></div>
+          <div><span>SKU / 站点</span><strong id="activity-metric-results">--</strong></div>
+          <div><span>多活动竞争</span><strong id="activity-metric-competing">--</strong></div>
+          <div><span>最近同步</span><strong class="compact" id="activity-metric-synced">--</strong></div>
+        </section>
+
+        <article class="panel activity-panel">
+          <div class="panel-heading activity-heading">
+            <div><h2>Temu 活动生效价</h2><span id="activity-result-summary">等待活动快照</span></div>
+            <div class="activity-actions">
+              <button class="text-command" id="activity-export" type="button" disabled><i data-lucide="download"></i>导出 CSV</button>
+              <button class="icon-command quiet" id="activity-refresh" type="button" title="刷新页面数据" aria-label="刷新页面数据"><i data-lucide="refresh-cw"></i></button>
+            </div>
+          </div>
+          <form class="activity-filters" id="activity-filter-form">
+            <label class="field compact"><span>SKC ID</span><input id="activity-skc-filter" inputmode="numeric" placeholder="输入 SKC ID"></label>
+            <label class="field compact"><span>SKU ID</span><input id="activity-sku-filter" inputmode="numeric" placeholder="输入 SKU ID"></label>
+            <label class="field compact"><span>站点</span><select id="activity-site-filter"><option value="">全部站点</option></select></label>
+            <button class="icon-command quiet" id="activity-reset" type="button" title="重置筛选" aria-label="重置筛选"><i data-lucide="rotate-ccw"></i></button>
+            <button class="primary-command" id="activity-search" type="submit"><i data-lucide="search"></i>查询</button>
+          </form>
+          <div class="table-wrap activity-table-wrap">
+            <table class="activity-table">
+              <thead><tr><th>SKC / SKU</th><th>站点</th><th class="num">日常价</th><th class="num">生效活动价</th><th>优惠</th><th>生效活动</th><th>参与比价</th><th>活动时间</th></tr></thead>
+              <tbody id="activity-price-body"><tr class="empty-row"><td colspan="8">正在读取活动价格</td></tr></tbody>
+            </table>
+          </div>
+          <div class="activity-footer">
+            <span id="activity-page-summary">--</span>
+            <div class="pager">
+              <button class="icon-command quiet" id="activity-prev" type="button" title="上一页" aria-label="上一页"><i data-lucide="chevron-left"></i></button>
+              <span id="activity-page">1</span>
+              <button class="icon-command quiet" id="activity-next" type="button" title="下一页" aria-label="下一页"><i data-lucide="chevron-right"></i></button>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="mapping-dialog">
+    <form method="dialog" id="mapping-form">
+      <div class="dialog-heading"><div><h2>编辑 SKU 映射</h2><span id="mapping-dialog-source">--</span></div><button class="icon-command quiet" type="button" data-close-dialog title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></div>
+      <label class="field"><span>仓库 SKU</span><input id="mapping-warehouse-sku" list="warehouse-sku-options" required></label>
+      <datalist id="warehouse-sku-options"></datalist>
+      <label class="field"><span>仓库换算系数</span><input id="mapping-factor" type="number" min="0.0001" step="0.0001" required></label>
+      <div class="dialog-actions"><button class="secondary-command" type="button" data-close-dialog>取消</button><button class="primary-command" id="mapping-save" type="submit"><i data-lucide="save"></i>保存映射</button></div>
+    </form>
+  </dialog>
+
+  <script src="./vendor/chart.umd.min.js"></script>
+  <script src="./vendor/lucide.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+[Unit]
+Description=Pangu sales management Go server
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fanghaizhou
+Group=fanghaizhou
+WorkingDirectory=/home/fanghaizhou/pangu-sales-manager
+EnvironmentFile=/etc/pangu-sales-manager.env
+EnvironmentFile=-/etc/pangu-sales-manager-marketing.env
+ExecStart=/usr/local/bin/pangu-sales-manager
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
