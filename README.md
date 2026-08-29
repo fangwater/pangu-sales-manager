@@ -28,6 +28,8 @@ go build -o bin/pangu-sales-manager .
 
 Temu 活动价格由同一服务直接拉取并计算，只在进程内保留最新完整快照，不写入 PostgreSQL。启动时立即拉取，默认每 30 分钟刷新一次；服务重启后接口会在首次同步完成前返回 `503`。
 
+活动报名明细将快照展开到活动、报名、场次、SKC、SKU 和站点价格层级。Temu 的 `activityStock` 与 `remainingActivityStock` 位于报名记录层级；同一报名中的多个 SKU 共享这组库存，不能把单次库存差值直接视为某个 SKU 的销量。当前接口展示的是“报名总库存减当前剩余库存”的累计差值，尚未持久化相邻快照变化。
+
 ## 主要 API
 
 - `GET /api/dashboard?period=day|week|month`
@@ -38,3 +40,4 @@ Temu 活动价格由同一服务直接拉取并计算，只在进程内保留最
 - `POST /api/sync`
 - `GET /api/sync/status`
 - `GET /api/marketing/effective-prices`
+- `GET /api/marketing/activity-snapshot`

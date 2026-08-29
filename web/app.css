@@ -146,13 +146,37 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .activity-panel { margin-top: 12px; min-height: calc(100vh - 300px); }
 .activity-heading { border-bottom: 0; }
 .activity-actions { display: flex; align-items: center; gap: 4px; }
-.activity-filters { min-height: 68px; padding: 10px 16px 13px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface-soft); display: flex; align-items: end; gap: 10px; }
-.activity-filters input { width: 180px; }
+.activity-filters { min-height: 68px; padding: 10px 16px 13px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface-soft); display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)) repeat(2, minmax(140px, .8fr)) 36px 84px; align-items: end; gap: 10px; }
+.activity-filters .field.compact { min-width: 0; display: grid; gap: 3px; }
+.activity-filters input, .activity-filters select { width: 100%; min-width: 0; }
 .activity-filters .primary-command { height: 34px; }
-.activity-table { min-width: 1050px; }
+.activity-table { min-width: 1720px; }
+.activity-table td { height: 64px; vertical-align: middle; }
 .activity-table-wrap { min-height: 300px; }
 .activity-daily-price { color: var(--muted); text-decoration: line-through; }
 .activity-effective-price { color: var(--teal); font-weight: 700; }
+.activity-identity-cell { max-width: 280px; }
+.activity-identity-cell .sku-code { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.stock-scope-warning, .stock-scope-single { display: inline-flex; margin-top: 5px; padding: 2px 5px; border-radius: 3px; font-size: 10px; }
+.stock-scope-warning { background: var(--amber-soft); color: #8b5a12; }
+.stock-scope-single { background: var(--surface-soft); color: var(--muted); }
+.price-layers { display: flex; align-items: center; gap: 14px; }
+.price-pair { min-width: 92px; display: grid; grid-template-columns: auto auto; align-items: baseline; column-gap: 8px; row-gap: 2px; font-variant-numeric: tabular-nums; }
+.price-pair small { grid-column: 1 / -1; color: var(--muted); font-size: 9px; }
+.price-pair strong { color: var(--teal); font-size: 12px; }
+.price-pair.empty { display: grid; }
+.price-pair.empty span { grid-column: 1 / -1; color: #99a29e; font-size: 10px; }
+.stock-cell { width: 170px; }
+.stock-values { display: flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; }
+.stock-values strong { font-size: 15px; }
+.stock-values span { color: var(--muted); }
+.stock-track { width: 145px; height: 4px; margin-top: 6px; overflow: hidden; border-radius: 2px; background: #e7ece9; }
+.stock-track i { display: block; height: 100%; background: var(--teal); }
+.stock-cell > small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; }
+.stock-change { display: block; color: var(--muted); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stock-change.changed { color: var(--coral, #d25a43); }
+.status-secondary { display: block; margin: 5px 0; color: var(--muted); font-size: 10px; }
+.session-time { display: block; font-variant-numeric: tabular-nums; }
 .activity-footer { min-height: 54px; padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 
 .warehouse-grid { display: grid; grid-template-columns: repeat(5, minmax(160px, 1fr)); gap: 12px; }
@@ -201,7 +225,8 @@ dialog input { width: 100%; }
   .activity-summary { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
   .activity-summary > div:nth-child(2) { border-right: 0; }
   .activity-summary > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
-  .activity-filters { overflow-x: auto; }
+  .activity-filters { display: flex; flex-wrap: wrap; overflow: visible; }
+  .activity-filters .field.compact { flex: 1 1 160px; }
 }
 
 @media (max-width: 520px) {
@@ -217,7 +242,6 @@ dialog input { width: 100%; }
   .mapping-heading { display: block; }
   .table-tools { margin-top: 10px; }
   .search-box input { width: 180px; }
-  .activity-filters { flex-wrap: wrap; overflow: visible; }
   .activity-filters .field { flex: 1 1 140px; }
   .activity-filters input, .activity-filters select { width: 100%; min-width: 0; }
 }

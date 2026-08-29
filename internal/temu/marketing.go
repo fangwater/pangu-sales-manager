@@ -70,14 +70,18 @@ type MarketingEnrollmentSession struct {
 }
 
 type MarketingEnrollmentSKC struct {
-	SKCID    int64                    `json:"skcId"`
-	Currency string                   `json:"currency"`
-	SKUList  []MarketingEnrollmentSKU `json:"skuList"`
+	SKCID         int64                    `json:"skcId"`
+	Currency      string                   `json:"currency"`
+	DailyPrice    int64                    `json:"dailyPrice"`
+	ActivityPrice int64                    `json:"activityPrice"`
+	SKUList       []MarketingEnrollmentSKU `json:"skuList"`
 }
 
 type MarketingEnrollmentSKU struct {
 	SKUID         int64                      `json:"skuId"`
 	Currency      string                     `json:"currency"`
+	DailyPrice    int64                      `json:"dailyPrice"`
+	ActivityPrice int64                      `json:"activityPrice"`
 	SitePriceList []MarketingEnrollmentPrice `json:"sitePriceList"`
 }
 

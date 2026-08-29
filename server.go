@@ -57,8 +57,38 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sync/status", s.syncStatus)
 	mux.HandleFunc("POST /api/sync", s.startSync)
 	mux.HandleFunc("GET /api/marketing/effective-prices", s.effectiveActivityPrices)
+	mux.HandleFunc("GET /api/marketing/activity-snapshot", s.activitySnapshotRows)
 	mux.HandleFunc("GET /", s.serveStatic)
 	return s.middleware(mux)
+}
+
+func (s *APIServer) activitySnapshotRows(writer http.ResponseWriter, request *http.Request) {
+	if s.marketing == nil {
+		writeJSON(writer, http.StatusServiceUnavailable, apiResponse{Success: false, Error: "活动价格同步未启用"})
+		return
+	}
+	filter, err := activityRowFilter(request)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
+		return
+	}
+	items, summary, snapshot, err := s.marketing.ActivityRows(filter)
+	if err != nil {
+		if errors.Is(err, marketing.ErrSnapshotUnavailable) {
+			writeJSON(writer, http.StatusServiceUnavailable, apiResponse{Success: false, Error: "活动价格首次同步尚未完成"})
+			return
+		}
+		s.internalError(writer, "query activity snapshot", err)
+		return
+	}
+	page := normalizedPage(queryInt(request, "page", 1), 1, 100000)
+	pageSize := normalizedPage(queryInt(request, "page_size", 1000), 1000, 1000)
+	start := min((page-1)*pageSize, len(items))
+	end := min(start+pageSize, len(items))
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: items[start:end], Meta: map[string]any{
+		"page": page, "page_size": pageSize, "total": len(items), "synced_at": snapshot.CompletedAt,
+		"started_at": snapshot.StartedAt, "summary": summary,
+	}})
 }
 
 func (s *APIServer) effectiveActivityPrices(writer http.ResponseWriter, request *http.Request) {
@@ -91,22 +121,45 @@ func (s *APIServer) effectiveActivityPrices(writer http.ResponseWriter, request 
 
 func effectivePriceFilter(request *http.Request) (marketing.EffectivePriceFilter, error) {
 	filter := marketing.EffectivePriceFilter{}
+	var err error
+	if filter.SKCID, err = positiveQueryID(request, "skc_id"); err != nil {
+		return filter, err
+	}
+	if filter.SKUID, err = positiveQueryID(request, "sku_id"); err != nil {
+		return filter, err
+	}
+	if filter.SiteID, err = positiveQueryID(request, "site_id"); err != nil {
+		return filter, err
+	}
+	return filter, nil
+}
+
+func activityRowFilter(request *http.Request) (marketing.ActivityRowFilter, error) {
+	filter := marketing.ActivityRowFilter{}
 	values := []struct {
 		name   string
 		target *int64
-	}{{"skc_id", &filter.SKCID}, {"sku_id", &filter.SKUID}, {"site_id", &filter.SiteID}}
+	}{{"skc_id", &filter.SKCID}, {"sku_id", &filter.SKUID}, {"site_id", &filter.SiteID}, {"enroll_id", &filter.EnrollID}, {"activity_type", &filter.ActivityType}}
 	for _, value := range values {
-		raw := strings.TrimSpace(request.URL.Query().Get(value.name))
-		if raw == "" {
-			continue
-		}
-		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || parsed <= 0 {
-			return filter, errors.New(value.name + " must be a positive integer")
+		parsed, err := positiveQueryID(request, value.name)
+		if err != nil {
+			return filter, err
 		}
 		*value.target = parsed
 	}
 	return filter, nil
+}
+
+func positiveQueryID(request *http.Request, name string) (int64, error) {
+	raw := strings.TrimSpace(request.URL.Query().Get(name))
+	if raw == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || parsed <= 0 {
+		return 0, errors.New(name + " must be a positive integer")
+	}
+	return parsed, nil
 }
 
 func (s *APIServer) middleware(next http.Handler) http.Handler {
