@@ -109,3 +109,64 @@ CREATE INDEX IF NOT EXISTS sku_mappings_status_idx
     ON sku_mappings (mapping_status, platform, shop_key);
 CREATE INDEX IF NOT EXISTS sync_runs_full_idx
     ON sync_runs (completed_at DESC) WHERE status='succeeded' AND sync_mode='full';
+
+CREATE TABLE IF NOT EXISTS temu_activity_snapshot_runs (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    captured_at timestamptz NOT NULL UNIQUE,
+    started_at timestamptz NOT NULL,
+    enrollment_count integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS temu_activity_enrollment_snapshots (
+    snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id) ON DELETE CASCADE,
+    enroll_id bigint NOT NULL,
+    skc_id bigint NOT NULL,
+    activity_type bigint NOT NULL DEFAULT 0,
+    activity_type_name text NOT NULL DEFAULT '',
+    activity_thematic_id bigint NOT NULL DEFAULT 0,
+    activity_thematic_name text NOT NULL DEFAULT '',
+    activity_stock bigint NOT NULL DEFAULT 0,
+    remaining_activity_stock bigint NOT NULL DEFAULT 0,
+    previous_remaining_activity_stock bigint,
+    interval_consumed_stock bigint NOT NULL DEFAULT 0,
+    interval_increased_stock bigint NOT NULL DEFAULT 0,
+    cumulative_consumed_stock bigint NOT NULL DEFAULT 0,
+    enrollment_sku_count integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (snapshot_id, enroll_id, skc_id)
+);
+
+CREATE TABLE IF NOT EXISTS temu_activity_sku_price_snapshots (
+    snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id) ON DELETE CASCADE,
+    enroll_id bigint NOT NULL,
+    skc_id bigint NOT NULL,
+    sku_id bigint NOT NULL,
+    site_id bigint NOT NULL DEFAULT 0,
+    session_id bigint NOT NULL DEFAULT 0,
+    currency text NOT NULL DEFAULT '',
+    daily_price bigint NOT NULL DEFAULT 0,
+    activity_price bigint NOT NULL DEFAULT 0,
+    PRIMARY KEY (snapshot_id, enroll_id, skc_id, sku_id, site_id, session_id)
+);
+
+CREATE TABLE IF NOT EXISTS temu_skc_activity_state_snapshots (
+    snapshot_id bigint NOT NULL REFERENCES temu_activity_snapshot_runs(id) ON DELETE CASCADE,
+    skc_id bigint NOT NULL,
+    status text NOT NULL CHECK (status IN ('confirmed', 'unknown', 'conflict', 'inactive')),
+    active_enroll_id bigint,
+    previous_active_enroll_id bigint,
+    candidate_enroll_ids bigint[] NOT NULL DEFAULT '{}',
+    evidence_enroll_ids bigint[] NOT NULL DEFAULT '{}',
+    state_started_at timestamptz NOT NULL,
+    last_evidence_at timestamptz,
+    carried_forward boolean NOT NULL DEFAULT false,
+    reason text NOT NULL DEFAULT '',
+    PRIMARY KEY (snapshot_id, skc_id)
+);
+
+CREATE INDEX IF NOT EXISTS temu_activity_enrollment_history_idx
+    ON temu_activity_enrollment_snapshots (enroll_id, skc_id, snapshot_id DESC);
+CREATE INDEX IF NOT EXISTS temu_activity_sku_price_history_idx
+    ON temu_activity_sku_price_snapshots (sku_id, skc_id, snapshot_id DESC);
+CREATE INDEX IF NOT EXISTS temu_skc_activity_state_history_idx
+    ON temu_skc_activity_state_snapshots (skc_id, snapshot_id DESC);

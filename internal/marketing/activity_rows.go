@@ -2,6 +2,7 @@ package marketing
 
 import (
 	"sort"
+	"time"
 
 	"pangu-sales-manager/internal/temu"
 )
@@ -15,35 +16,47 @@ type ActivityRowFilter struct {
 }
 
 type ActivitySnapshotRow struct {
-	EnrollID                int64  `json:"enroll_id"`
-	ProductID               int64  `json:"product_id"`
-	GoodsID                 int64  `json:"goods_id"`
-	ActivityType            int64  `json:"activity_type"`
-	ActivityTypeName        string `json:"activity_type_name"`
-	ActivityThematicID      int64  `json:"activity_thematic_id,omitempty"`
-	ActivityThematicName    string `json:"activity_thematic_name,omitempty"`
-	EnrollStatus            int    `json:"enroll_status"`
-	SoldStatus              int    `json:"sold_status"`
-	EnrollTime              int64  `json:"enroll_time"`
-	ActivityStock           int64  `json:"activity_stock"`
-	RemainingActivityStock  int64  `json:"remaining_activity_stock"`
-	ConsumedActivityStock   int64  `json:"consumed_activity_stock"`
-	EnrollmentSKUCount      int    `json:"enrollment_sku_count"`
-	SKCID                   int64  `json:"skc_id"`
-	SKUID                   int64  `json:"sku_id"`
-	Currency                string `json:"currency"`
-	SiteID                  int64  `json:"site_id"`
-	SiteName                string `json:"site_name"`
-	SiteDailyPrice          int64  `json:"site_daily_price"`
-	SiteActivityPrice       int64  `json:"site_activity_price"`
-	SessionID               int64  `json:"session_id"`
-	SessionName             string `json:"session_name"`
-	SessionStatus           int    `json:"session_status"`
-	SessionStartTime        int64  `json:"session_start_time"`
-	SessionEndTime          int64  `json:"session_end_time"`
-	GoodsRecordLoaded       bool   `json:"goods_record_loaded"`
-	SKCSiteStatus           int    `json:"skc_site_status"`
-	SKUListedInCurrentGoods bool   `json:"sku_listed_in_current_goods"`
+	EnrollID                       int64      `json:"enroll_id"`
+	ProductID                      int64      `json:"product_id"`
+	GoodsID                        int64      `json:"goods_id"`
+	ActivityType                   int64      `json:"activity_type"`
+	ActivityTypeName               string     `json:"activity_type_name"`
+	ActivityThematicID             int64      `json:"activity_thematic_id,omitempty"`
+	ActivityThematicName           string     `json:"activity_thematic_name,omitempty"`
+	EnrollStatus                   int        `json:"enroll_status"`
+	SoldStatus                     int        `json:"sold_status"`
+	EnrollTime                     int64      `json:"enroll_time"`
+	ActivityStock                  int64      `json:"activity_stock"`
+	RemainingActivityStock         int64      `json:"remaining_activity_stock"`
+	ConsumedActivityStock          int64      `json:"consumed_activity_stock"`
+	EnrollmentSKUCount             int        `json:"enrollment_sku_count"`
+	SKCID                          int64      `json:"skc_id"`
+	SKUID                          int64      `json:"sku_id"`
+	Currency                       string     `json:"currency"`
+	SiteID                         int64      `json:"site_id"`
+	SiteName                       string     `json:"site_name"`
+	SiteDailyPrice                 int64      `json:"site_daily_price"`
+	SiteActivityPrice              int64      `json:"site_activity_price"`
+	SessionID                      int64      `json:"session_id"`
+	SessionName                    string     `json:"session_name"`
+	SessionStatus                  int        `json:"session_status"`
+	SessionStartTime               int64      `json:"session_start_time"`
+	SessionEndTime                 int64      `json:"session_end_time"`
+	PreviousRemainingActivityStock *int64     `json:"previous_remaining_activity_stock,omitempty"`
+	IntervalConsumedStock          int64      `json:"interval_consumed_stock"`
+	IntervalIncreasedStock         int64      `json:"interval_increased_stock"`
+	SKCActivityStatus              string     `json:"skc_activity_status,omitempty"`
+	SKCActiveEnrollID              int64      `json:"skc_active_enroll_id,omitempty"`
+	SKCPreviousActiveEnrollID      int64      `json:"skc_previous_active_enroll_id,omitempty"`
+	SKCEvidenceEnrollIDs           []int64    `json:"skc_evidence_enroll_ids,omitempty"`
+	SKCStateStartedAt              time.Time  `json:"skc_state_started_at,omitempty"`
+	SKCLastEvidenceAt              *time.Time `json:"skc_last_evidence_at,omitempty"`
+	SKCStateCarriedForward         bool       `json:"skc_state_carried_forward"`
+	SKCStateReason                 string     `json:"skc_state_reason,omitempty"`
+	SelectedEffectiveActivity      bool       `json:"selected_effective_activity"`
+	GoodsRecordLoaded              bool       `json:"goods_record_loaded"`
+	SKCSiteStatus                  int        `json:"skc_site_status"`
+	SKUListedInCurrentGoods        bool       `json:"sku_listed_in_current_goods"`
 }
 
 type ActivitySnapshotSummary struct {

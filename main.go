@@ -70,7 +70,7 @@ func main() {
 
 	go scheduleSync(ctx, syncer, config.SyncInterval, logger)
 	if marketingSyncer != nil {
-		go scheduleMarketingSync(ctx, marketingSyncer, config.MarketingSyncInterval, config.MarketingRequestTimeout*4, logger)
+		go scheduleMarketingSync(ctx, marketingSyncer, store, config.MarketingSyncInterval, config.MarketingRequestTimeout*4, logger)
 	} else {
 		logger.Info("Temu activity price sync disabled")
 	}
@@ -90,7 +90,7 @@ func main() {
 	}
 }
 
-func scheduleMarketingSync(ctx context.Context, syncer *marketing.Syncer, interval, timeout time.Duration, logger *slog.Logger) {
+func scheduleMarketingSync(ctx context.Context, syncer *marketing.Syncer, store *Store, interval, timeout time.Duration, logger *slog.Logger) {
 	run := func() {
 		syncCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
@@ -99,7 +99,12 @@ func scheduleMarketingSync(ctx context.Context, syncer *marketing.Syncer, interv
 			logger.Warn("Temu current activity price sync failed", "error", err, "enrollments", len(snapshot.Enrollments), "pages", snapshot.EnrollmentPages)
 			return
 		}
-		logger.Info("Temu current activity price sync completed", "enrollments", len(snapshot.Enrollments), "enrollment_pages", snapshot.EnrollmentPages, "goods_skcs", len(snapshot.GoodsBySKC), "goods_pages", snapshot.GoodsPages)
+		snapshotID, err := store.recordTemuActivitySnapshot(syncCtx, snapshot)
+		if err != nil {
+			logger.Error("Temu activity snapshot persistence failed", "error", err, "enrollments", len(snapshot.Enrollments))
+			return
+		}
+		logger.Info("Temu current activity price sync completed", "snapshot_id", snapshotID, "enrollments", len(snapshot.Enrollments), "enrollment_pages", snapshot.EnrollmentPages, "goods_skcs", len(snapshot.GoodsBySKC), "goods_pages", snapshot.GoodsPages)
 	}
 	run()
 	ticker := time.NewTicker(interval)
