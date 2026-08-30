@@ -406,6 +406,14 @@ func (s *Syncer) readTemu(ctx context.Context, shopKey, schema string, inventory
 			}
 		}
 		line.RawPayload = json.RawMessage(raw)
+		var productRefs struct {
+			ProductList []struct {
+				ProductSKUID int64 `json:"productSkuId"`
+			} `json:"productList"`
+		}
+		if json.Unmarshal(raw, &productRefs) == nil && len(productRefs.ProductList) > 0 {
+			line.ProductSKUID = productRefs.ProductList[0].ProductSKUID
+		}
 		lines = append(lines, line)
 	}
 	return orders, lines, lineRows.Err()

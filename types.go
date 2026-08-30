@@ -26,6 +26,7 @@ type SourceLine struct {
 	OrderNo          string
 	SourceLineKey    string
 	PlatformSKU      string
+	ProductSKUID     int64
 	SuggestedSKU     string
 	ProductName      string
 	VariantName      string

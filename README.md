@@ -48,3 +48,8 @@ SKU 价格按区间增量保存。SKC 为 `confirmed` 时使用其 `active_enrol
 - `GET /api/marketing/skc-activity-states`
 - `GET /api/marketing/sku-price-snapshot?sku_id=&skc_id=&status=`
 - `GET /api/marketing/sku-price-snapshot/{skuID}/history?limit=120`
+- `GET /api/marketing/sku-current-price?sku_id=...`：从当前进程内存读取。
+- `POST /api/marketing/sku-prices/query`：批量查询当前或指定时间的 SKU 价格；不传 `at` 走内存，传 `at` 走 PG 区间并允许最近区间推断。
+- `POST /api/marketing/order-price-estimates/backfill`：按时间范围批量预览或写入 Temu 订单价格估算。
+
+历史查询的 `match_method` 包括 `exact_interval`、`nearest_after`、`nearest_before` 和 `unmatched`。区间外推断始终返回 `warning` 并附带时间距离，不会伪装成准确成交价。订单补全同时保留 `price_source`、`match_method`、订单时间口径和匹配区间，便于审计。

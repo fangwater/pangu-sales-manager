@@ -159,12 +159,13 @@ func (s *Store) upsertSourceBatch(ctx context.Context, orders []SourceOrder, lin
 		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO normalized_order_lines(
-				order_id, source_line_key, platform_sku, warehouse_sku, product_name,
+				order_id, source_line_key, platform_sku, platform_product_sku_id, warehouse_sku, product_name,
 				variant_name, warehouse_code, quantity, conversion_factor,
 				warehouse_quantity, unit_price, currency, raw_payload, synced_at
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$8::numeric*$9::numeric,$10,$11,$12,now())
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9::numeric*$10::numeric,$11,$12,$13,now())
 			ON CONFLICT (order_id, source_line_key) DO UPDATE SET
 				platform_sku=EXCLUDED.platform_sku,
+				platform_product_sku_id=COALESCE(EXCLUDED.platform_product_sku_id,normalized_order_lines.platform_product_sku_id),
 				warehouse_sku=EXCLUDED.warehouse_sku,
 				product_name=EXCLUDED.product_name,
 				variant_name=EXCLUDED.variant_name,
@@ -172,11 +173,11 @@ func (s *Store) upsertSourceBatch(ctx context.Context, orders []SourceOrder, lin
 				quantity=EXCLUDED.quantity,
 				conversion_factor=EXCLUDED.conversion_factor,
 				warehouse_quantity=EXCLUDED.warehouse_quantity,
-				unit_price=EXCLUDED.unit_price,
-				currency=EXCLUDED.currency,
+				unit_price=COALESCE(EXCLUDED.unit_price,normalized_order_lines.unit_price),
+				currency=CASE WHEN EXCLUDED.currency<>'' THEN EXCLUDED.currency ELSE normalized_order_lines.currency END,
 				raw_payload=EXCLUDED.raw_payload,
 				synced_at=now()
-		`, orderID, line.SourceLineKey, line.PlatformSKU, warehouseSKU,
+		`, orderID, line.SourceLineKey, line.PlatformSKU, nullablePositiveInt64(line.ProductSKUID), warehouseSKU,
 			line.ProductName, line.VariantName, line.WarehouseCode, line.Quantity,
 			conversion, line.UnitPrice, line.Currency, validJSON(line.RawPayload))
 		if err != nil {

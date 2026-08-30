@@ -63,6 +63,9 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/marketing/skc-activity-states", s.skcActivityStates)
 	mux.HandleFunc("GET /api/marketing/sku-price-snapshot", s.skuPriceSnapshot)
 	mux.HandleFunc("GET /api/marketing/sku-price-snapshot/{skuID}/history", s.skuPriceSnapshotHistory)
+	mux.HandleFunc("GET /api/marketing/sku-current-price", s.skuCurrentPrice)
+	mux.HandleFunc("POST /api/marketing/sku-prices/query", s.querySKUPrices)
+	mux.HandleFunc("POST /api/marketing/order-price-estimates/backfill", s.backfillOrderPriceEstimates)
 	mux.HandleFunc("GET /", s.serveStatic)
 	return s.middleware(mux)
 }
@@ -178,6 +181,72 @@ func (s *APIServer) skuPriceSnapshotHistory(writer http.ResponseWriter, request 
 		return
 	}
 	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: states, Meta: map[string]any{"total": len(states), "sku_id": skuID}})
+}
+
+func (s *APIServer) skuCurrentPrice(writer http.ResponseWriter, request *http.Request) {
+	if s.observer == nil {
+		writeJSON(writer, http.StatusServiceUnavailable, apiResponse{Success: false, Error: "SKU 价格观测未启用"})
+		return
+	}
+	skuID, err := positiveQueryID(request, "sku_id")
+	if err != nil || skuID == 0 {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "sku_id must be a positive integer"})
+		return
+	}
+	results, err := resolveSKUPriceQueries(request.Context(), s.observer, s.store, []SKUPriceQueryItem{{SKUID: skuID}})
+	if err != nil {
+		s.internalError(writer, "query current SKU price", err)
+		return
+	}
+	if len(results) == 0 || results[0].Reason == "current_sku_not_found" {
+		writeJSON(writer, http.StatusNotFound, apiResponse{Success: false, Error: "当前活动中没有该 SKU"})
+		return
+	}
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: results[0]})
+}
+
+func (s *APIServer) querySKUPrices(writer http.ResponseWriter, request *http.Request) {
+	if s.observer == nil {
+		writeJSON(writer, http.StatusServiceUnavailable, apiResponse{Success: false, Error: "SKU 价格观测未启用"})
+		return
+	}
+	var payload SKUPriceQueryRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "invalid JSON body"})
+		return
+	}
+	results, err := resolveSKUPriceQueries(request.Context(), s.observer, s.store, payload.Items)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
+		return
+	}
+	counts := map[string]int{}
+	for _, result := range results {
+		counts[result.Status]++
+	}
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: results, Meta: map[string]any{"total": len(results), "status_counts": counts}})
+}
+
+func (s *APIServer) backfillOrderPriceEstimates(writer http.ResponseWriter, request *http.Request) {
+	if s.observer == nil {
+		writeJSON(writer, http.StatusServiceUnavailable, apiResponse{Success: false, Error: "SKU 价格观测未启用"})
+		return
+	}
+	var payload OrderPriceBackfillRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "invalid JSON body"})
+		return
+	}
+	stats, err := backfillOrderPriceEstimates(request.Context(), s.store, s.observer, payload)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
+		return
+	}
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: stats})
 }
 
 func (s *APIServer) effectiveActivityPrices(writer http.ResponseWriter, request *http.Request) {

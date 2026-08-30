@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS normalized_order_lines (
     UNIQUE (order_id, source_line_key)
 );
 
+ALTER TABLE normalized_order_lines
+    ADD COLUMN IF NOT EXISTS platform_product_sku_id bigint,
+    ADD COLUMN IF NOT EXISTS unit_price_source text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS unit_price_status text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS unit_price_estimated_at timestamptz;
+
 CREATE TABLE IF NOT EXISTS warehouse_inventory (
     warehouse_code text NOT NULL,
     warehouse_sku text NOT NULL REFERENCES canonical_skus(warehouse_sku),
@@ -128,6 +134,25 @@ CREATE TABLE IF NOT EXISTS temu_sku_price_intervals (
     end_at timestamptz
 );
 
+CREATE TABLE IF NOT EXISTS temu_order_line_price_estimates (
+    order_line_id bigint PRIMARY KEY REFERENCES normalized_order_lines(id) ON DELETE CASCADE,
+    product_sku_id bigint NOT NULL,
+    skc_id bigint,
+    matched_interval_id bigint REFERENCES temu_sku_price_intervals(id),
+    estimated_price bigint NOT NULL DEFAULT 0,
+    currency text NOT NULL DEFAULT '',
+    status text NOT NULL CHECK (status IN ('confirmed', 'warning', 'unmatched')),
+    price_source text NOT NULL DEFAULT '',
+    match_method text NOT NULL CHECK (match_method IN ('exact_interval', 'nearest_after', 'nearest_before', 'unmatched')),
+    order_time timestamptz NOT NULL,
+    order_time_source text NOT NULL DEFAULT '',
+    interval_start_at timestamptz,
+    interval_end_at timestamptz,
+    time_distance_seconds bigint,
+    reason text NOT NULL DEFAULT '',
+    estimated_at timestamptz NOT NULL DEFAULT now()
+);
+
 ALTER TABLE temu_sku_price_intervals
     DROP COLUMN IF EXISTS first_snapshot_id,
     DROP COLUMN IF EXISTS last_snapshot_id;
@@ -136,6 +161,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS temu_sku_price_intervals_open_idx
     ON temu_sku_price_intervals (sku_id) WHERE end_at IS NULL;
 CREATE INDEX IF NOT EXISTS temu_sku_price_intervals_history_idx
     ON temu_sku_price_intervals (sku_id, start_at DESC);
+CREATE INDEX IF NOT EXISTS temu_order_line_price_estimates_status_idx
+    ON temu_order_line_price_estimates (status, estimated_at DESC);
+CREATE INDEX IF NOT EXISTS normalized_order_lines_product_sku_idx
+    ON normalized_order_lines (platform_product_sku_id) WHERE platform_product_sku_id IS NOT NULL;
 
 DROP TABLE IF EXISTS temu_activity_sku_price_snapshots;
 DROP TABLE IF EXISTS temu_sku_price_state_snapshots;
