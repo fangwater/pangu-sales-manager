@@ -27,6 +27,7 @@
         <button class="nav-item" data-view="orders"><i data-lucide="receipt-text"></i><span>标准订单</span></button>
         <button class="nav-item" data-view="activity-prices"><i data-lucide="circle-dollar-sign"></i><span>活动价格</span></button>
         <button class="nav-item" data-view="sku-prices"><i data-lucide="badge-dollar-sign"></i><span>SKU 价格</span></button>
+        <button class="nav-item" data-view="profit"><i data-lucide="calculator"></i><span>TEMU 利润</span></button>
       </nav>
 
       <div class="source-status" id="source-status">
@@ -274,6 +275,57 @@
               <span id="sku-price-page">1</span>
               <button class="icon-command quiet" id="sku-price-next" type="button" title="下一页" aria-label="下一页"><i data-lucide="chevron-right"></i></button>
             </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-profit">
+        <section class="activity-summary" aria-label="利润表导入汇总">
+          <div><span>已入库行数</span><strong id="profit-metric-rows">--</strong></div>
+          <div><span>最近导入文件</span><strong class="compact" id="profit-metric-files">--</strong></div>
+          <div><span>覆盖写入</span><strong id="profit-metric-upserted">--</strong></div>
+          <div><span>最近导入</span><strong class="compact" id="profit-metric-synced">--</strong></div>
+        </section>
+
+        <article class="panel activity-panel">
+          <div class="panel-heading activity-heading">
+            <div><h2>上传 TEMU 利润表</h2><span>支持整包 zip 或单张 xlsx，按业务键增量覆盖</span></div>
+            <button class="icon-command quiet" id="profit-refresh" type="button" title="刷新入库统计" aria-label="刷新入库统计"><i data-lucide="refresh-cw"></i></button>
+          </div>
+          <form class="profit-upload" id="profit-upload-form">
+            <label class="field compact">
+              <span>店铺</span>
+              <select id="profit-shop" required>
+                <option value="panda-homes">Panda Homes</option>
+                <option value="panda-buy">Panda Buy</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>单表类型</span>
+              <select id="profit-table">
+                <option value="">自动识别 / zip 整包</option>
+                <option value="shipping_posted">发货面单费-已出账</option>
+                <option value="shipping_pending">发货面单费-待出账</option>
+                <option value="return_merchant">退货面单费-退至商家仓</option>
+                <option value="return_third_party">退货面单费-退至第三方仓</option>
+                <option value="fund_detail">对账中心-账务明细</option>
+                <option value="settled_flow">结算数据-PO明细账单</option>
+                <option value="settled_parent">结算数据-po聚合账单</option>
+                <option value="unsettle">结算数据-待处理款项</option>
+              </select>
+            </label>
+            <label class="field compact profit-file-field">
+              <span>文件</span>
+              <input id="profit-file" type="file" accept=".xlsx,.zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip" required>
+            </label>
+            <button class="primary-command" id="profit-upload" type="submit"><i data-lucide="upload"></i>导入并覆盖</button>
+          </form>
+          <p class="profit-hint" id="profit-hint">zip 按文件名识别全部 8 类表格；单张 xlsx 可自动识别，发货/退货面单费建议指定类型。</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>数据表</th><th class="num">当前行数</th><th class="num">本次新增</th><th class="num">本次覆盖</th></tr></thead>
+              <tbody id="profit-table-body"><tr class="empty-row"><td colspan="4">等待读取利润表</td></tr></tbody>
+            </table>
           </div>
         </article>
       </section>

@@ -66,8 +66,8 @@ func main() {
 	}
 	server := &http.Server{
 		Addr: config.ListenAddr, Handler: api.Handler(),
-		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second,
-		WriteTimeout: 60 * time.Second, IdleTimeout: 90 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 3 * time.Minute,
+		WriteTimeout: 5 * time.Minute, IdleTimeout: 90 * time.Second,
 	}
 
 	go scheduleSync(ctx, syncer, config.SyncInterval, logger)

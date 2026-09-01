@@ -66,6 +66,8 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/marketing/sku-current-price", s.skuCurrentPrice)
 	mux.HandleFunc("POST /api/marketing/sku-prices/query", s.querySKUPrices)
 	mux.HandleFunc("POST /api/marketing/order-price-estimates/backfill", s.backfillOrderPriceEstimates)
+	mux.HandleFunc("GET /api/profit/summary", s.profitSummary)
+	mux.HandleFunc("POST /api/profit/import", s.importProfit)
 	mux.HandleFunc("GET /", s.serveStatic)
 	return s.middleware(mux)
 }

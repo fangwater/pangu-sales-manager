@@ -14,6 +14,7 @@ const state = {
   mappingEditing: null,
   activity: { items: [], meta: {}, page: 1, pageSize: 20, loaded: false, sites: new Map(), types: new Map(), controller: null },
   skuPrices: { items: [], meta: {}, page: 1, pageSize: 30, loaded: false, controller: null },
+  profit: { summary: null, lastResult: null },
 };
 
 const viewMeta = {
@@ -24,6 +25,7 @@ const viewMeta = {
   orders: ["标准订单", "跨平台统一订单结构"],
   "activity-prices": ["活动价格", "TEMU 当前报名活动生效结果"],
   "sku-prices": ["SKU 价格", "TEMU 分钟价格解析结果"],
+  profit: ["TEMU 利润", "账单表格入库与增量覆盖"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -71,6 +73,8 @@ function bindEvents() {
   document.getElementById("sku-price-export").addEventListener("click", exportSKUPrices);
   document.getElementById("sku-price-prev").addEventListener("click", () => changeSKUPricePage(-1));
   document.getElementById("sku-price-next").addEventListener("click", () => changeSKUPricePage(1));
+  document.getElementById("profit-upload-form").addEventListener("submit", uploadProfitFile);
+  document.getElementById("profit-refresh").addEventListener("click", loadProfitSummary);
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
 
@@ -80,19 +84,20 @@ async function switchView(view) {
   document.querySelectorAll(".view").forEach(section => section.classList.toggle("active", section.id === `view-${view}`));
   document.getElementById("page-title").textContent = viewMeta[view][0];
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
-  document.getElementById("global-filters").hidden = view === "mappings" || view === "orders" || view === "activity-prices" || view === "sku-prices";
+  document.getElementById("global-filters").hidden = view === "mappings" || view === "orders" || view === "activity-prices" || view === "sku-prices" || view === "profit";
   if (view === "mappings") await loadMappings();
   if (view === "orders") await loadOrders();
   if (view === "warehouses") renderWarehouseChart();
   if (view === "activity-prices" && !state.activity.loaded) await loadActivityPrices();
   if (view === "sku-prices" && !state.skuPrices.loaded) await loadSKUPrices();
+  if (view === "profit") await loadProfitSummary();
   updateTopbarForView();
 
   const activeNavigation = document.querySelector(`[data-view="${view}"]`);
   if (activeNavigation && window.innerWidth <= 820) activeNavigation.scrollIntoView({ block: "nearest", inline: "nearest" });
 
   const url = new URL(window.location.href);
-  if (view === "activity-prices" || view === "sku-prices") url.searchParams.set("view", view);
+  if (view === "activity-prices" || view === "sku-prices" || view === "profit") url.searchParams.set("view", view);
   else url.searchParams.delete("view");
   window.history.replaceState({}, "", url);
 }
@@ -459,14 +464,89 @@ function formatActivityTime(value) { return value ? new Intl.DateTimeFormat("zh-
 function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 
 function updateTopbarForView() {
-  const snapshotView = state.view === "activity-prices" || state.view === "sku-prices";
+  const snapshotView = state.view === "activity-prices" || state.view === "sku-prices" || state.view === "profit";
   document.getElementById("sync-button").hidden = snapshotView;
   if (state.view === "activity-prices") {
     setText("updated-at", `活动快照 ${formatDateTime(state.activity.meta.synced_at)}`);
   } else if (state.view === "sku-prices") {
     setText("updated-at", `价格快照 ${formatDateTime(state.skuPrices.items[0]?.update_at)}`);
+  } else if (state.view === "profit") {
+    setText("updated-at", `利润导入 ${formatDateTime(state.profit.summary?.latest_import?.completed_at || state.profit.summary?.latest_import?.started_at)}`);
   } else if (state.dashboard) {
     setText("updated-at", `更新于 ${formatDateTime(state.dashboard.generated_at)}`);
+  }
+}
+
+async function loadProfitSummary() {
+  const refresh = document.getElementById("profit-refresh");
+  refresh.classList.add("syncing");
+  refresh.disabled = true;
+  try {
+    const response = await api("/api/profit/summary");
+    state.profit.summary = response.data;
+    renderProfitSummary();
+    showError("");
+  } catch (error) {
+    document.getElementById("profit-table-body").innerHTML = emptyRow(4, error.message);
+    showError(error.message);
+  } finally {
+    refresh.classList.remove("syncing");
+    refresh.disabled = false;
+    lucide.createIcons();
+  }
+}
+
+function renderProfitSummary() {
+  const summary = state.profit.summary || {};
+  const tables = summary.tables || [];
+  const last = state.profit.lastResult;
+  const latest = summary.latest_import;
+  const upsertedByTable = new Map();
+  (last?.tables || latest?.result?.tables || []).forEach(item => upsertedByTable.set(item.table, item));
+  const totalRows = tables.reduce((sum, item) => sum + Number(item.rows || 0), 0);
+  setText("profit-metric-rows", formatNumber(totalRows));
+  setText("profit-metric-files", last?.source_name || latest?.source_name || "尚未导入");
+  setText("profit-metric-upserted", formatNumber(last?.rows_upserted || latest?.rows_upserted || 0));
+  setText("profit-metric-synced", formatDateTime(latest?.completed_at || latest?.started_at));
+  if (state.view === "profit") setText("updated-at", `利润导入 ${formatDateTime(latest?.completed_at || latest?.started_at)}`);
+  document.getElementById("profit-hint").textContent = summary.importing
+    ? "正在导入，请稍候。"
+    : latest?.error_message
+      ? `最近导入失败：${latest.error_message}`
+      : "zip 按文件名识别全部 8 类表格；单张 xlsx 可自动识别，发货/退货面单费建议指定类型。";
+  document.getElementById("profit-table-body").innerHTML = tables.map(item => {
+    const change = upsertedByTable.get(item.table) || {};
+    return `<tr><td>${escapeHtml(item.label)}</td><td class="num">${formatNumber(item.rows)}</td><td class="num">${change.inserted == null ? "--" : formatNumber(change.inserted)}</td><td class="num">${change.updated == null ? "--" : formatNumber(change.updated)}</td></tr>`;
+  }).join("") || emptyRow(4, "还没有利润表数据");
+}
+
+async function uploadProfitFile(event) {
+  event.preventDefault();
+  const file = document.getElementById("profit-file").files[0];
+  const shopKey = document.getElementById("profit-shop").value;
+  const table = document.getElementById("profit-table").value;
+  if (!file) {
+    showError("请选择 xlsx 或 zip");
+    return;
+  }
+  const button = document.getElementById("profit-upload");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("shop_key", shopKey);
+  if (table) form.append("table", table);
+  button.disabled = true;
+  button.classList.add("syncing");
+  try {
+    const response = await api("/api/profit/import", { method: "POST", body: form });
+    state.profit.lastResult = response.data;
+    await loadProfitSummary();
+    showError("");
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    button.disabled = false;
+    button.classList.remove("syncing");
+    lucide.createIcons();
   }
 }
 

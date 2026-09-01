@@ -4,3 +4,6 @@
 *.local
 *.log
 .DS_Store
+__MACOSX/
+/TEMU利润计算.zip
+/TEMU利润计算/
