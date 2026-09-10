@@ -16,6 +16,8 @@ const state = {
   skuPrices: { items: [], meta: {}, page: 1, pageSize: 30, loaded: false, controller: null },
   profit: { summary: null, lastResult: null },
   profitSummary: { period: "day", shopKey: "", data: null, loaded: false },
+  profitSKU: { start: "", end: "", shopKey: "", data: null, loaded: false },
+  profitUnsettled: { shopKey: "", data: null, loaded: false },
 };
 
 const viewMeta = {
@@ -28,6 +30,8 @@ const viewMeta = {
   "sku-prices": ["SKU 价格", "TEMU 分钟价格解析结果"],
   profit: ["TEMU 利润", "账单表格入库与增量覆盖"],
   "profit-summary": ["利润总表", "TEMU 销量 / 退款 / 回款按天汇总"],
+  "profit-sku": ["SKU 利润", "按平台 SKU 汇总的销量 / 退款 / 回款"],
+  "profit-unsettled": ["未出账预估", "待处理款项与待出账面单费，等实际出账后自动被覆盖"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -87,6 +91,18 @@ function bindEvents() {
     loadProfitDailySummary();
   });
   document.getElementById("profit-summary-refresh").addEventListener("click", loadProfitDailySummary);
+  document.getElementById("profit-sku-search").addEventListener("click", () => {
+    state.profitSKU.start = document.getElementById("profit-sku-start").value;
+    state.profitSKU.end = document.getElementById("profit-sku-end").value;
+    state.profitSKU.shopKey = document.getElementById("profit-sku-shop").value;
+    loadProfitSKUSummary();
+  });
+  document.getElementById("profit-sku-refresh").addEventListener("click", loadProfitSKUSummary);
+  document.getElementById("profit-unsettled-shop").addEventListener("change", event => {
+    state.profitUnsettled.shopKey = event.target.value;
+    loadProfitUnsettledSummary();
+  });
+  document.getElementById("profit-unsettled-refresh").addEventListener("click", loadProfitUnsettledSummary);
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
 
@@ -96,7 +112,8 @@ async function switchView(view) {
   document.querySelectorAll(".view").forEach(section => section.classList.toggle("active", section.id === `view-${view}`));
   document.getElementById("page-title").textContent = viewMeta[view][0];
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
-  document.getElementById("global-filters").hidden = view === "mappings" || view === "orders" || view === "activity-prices" || view === "sku-prices" || view === "profit" || view === "profit-summary";
+  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled"];
+  document.getElementById("global-filters").hidden = customFilterViews.includes(view);
   if (view === "mappings") await loadMappings();
   if (view === "orders") await loadOrders();
   if (view === "warehouses") renderWarehouseChart();
@@ -104,13 +121,15 @@ async function switchView(view) {
   if (view === "sku-prices" && !state.skuPrices.loaded) await loadSKUPrices();
   if (view === "profit") await loadProfitSummary();
   if (view === "profit-summary" && !state.profitSummary.loaded) await loadProfitDailySummary();
+  if (view === "profit-sku" && !state.profitSKU.loaded) await loadProfitSKUSummary();
+  if (view === "profit-unsettled" && !state.profitUnsettled.loaded) await loadProfitUnsettledSummary();
   updateTopbarForView();
 
   const activeNavigation = document.querySelector(`[data-view="${view}"]`);
   if (activeNavigation && window.innerWidth <= 820) activeNavigation.scrollIntoView({ block: "nearest", inline: "nearest" });
 
   const url = new URL(window.location.href);
-  if (view === "activity-prices" || view === "sku-prices" || view === "profit" || view === "profit-summary") url.searchParams.set("view", view);
+  if (customFilterViews.includes(view)) url.searchParams.set("view", view);
   else url.searchParams.delete("view");
   window.history.replaceState({}, "", url);
 }
@@ -477,7 +496,7 @@ function formatActivityTime(value) { return value ? new Intl.DateTimeFormat("zh-
 function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 
 function updateTopbarForView() {
-  const snapshotView = state.view === "activity-prices" || state.view === "sku-prices" || state.view === "profit" || state.view === "profit-summary";
+  const snapshotView = ["activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled"].includes(state.view);
   document.getElementById("sync-button").hidden = snapshotView;
   if (state.view === "activity-prices") {
     setText("updated-at", `活动快照 ${formatDateTime(state.activity.meta.synced_at)}`);
@@ -487,6 +506,10 @@ function updateTopbarForView() {
     setText("updated-at", `利润导入 ${formatDateTime(state.profit.summary?.latest_import?.completed_at || state.profit.summary?.latest_import?.started_at)}`);
   } else if (state.view === "profit-summary") {
     setText("updated-at", `统计区间 ${state.profitSummary.data?.range?.start || "--"} ~ ${state.profitSummary.data?.range?.end || "--"}`);
+  } else if (state.view === "profit-sku") {
+    setText("updated-at", `统计区间 ${state.profitSKU.data?.range?.start || "--"} ~ ${state.profitSKU.data?.range?.end || "--"}`);
+  } else if (state.view === "profit-unsettled") {
+    setText("updated-at", "预估数据 · 无固定更新时间");
   } else if (state.dashboard) {
     setText("updated-at", `更新于 ${formatDateTime(state.dashboard.generated_at)}`);
   }
@@ -570,7 +593,7 @@ async function loadProfitDailySummary() {
   refresh.classList.add("syncing");
   refresh.disabled = true;
   const body = document.getElementById("profit-summary-body");
-  body.innerHTML = emptyRow(22, "正在读取利润总表");
+  body.innerHTML = emptyRow(23, "正在读取利润总表");
   try {
     const params = new URLSearchParams({ period: state.profitSummary.period });
     if (state.profitSummary.shopKey) params.set("shop_key", state.profitSummary.shopKey);
@@ -581,7 +604,7 @@ async function loadProfitDailySummary() {
     if (state.view === "profit-summary") updateTopbarForView();
     showError("");
   } catch (error) {
-    body.innerHTML = emptyRow(22, error.message);
+    body.innerHTML = emptyRow(23, error.message);
     showError(error.message);
   } finally {
     refresh.classList.remove("syncing");
@@ -595,6 +618,7 @@ function renderProfitDailySummary() {
   const rows = data.rows || [];
   setText("profit-summary-range", `${data.range?.start || "--"} ~ ${data.range?.end || "--"}`);
   const formatUSD = value => value == null ? "--" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
+  const estimatedSalesCell = row => `<td class="num">${formatUSD(row.estimated_sales_amount)}<span class="status-secondary">覆盖 ${formatNumber(row.estimated_sales_matched)}/${formatNumber(row.estimated_sales_total)}</span></td>`;
   const amountCells = row => [
     row.payback_amount,
     row.sales_receipt_amount, row.freight_receipt_amount,
@@ -608,6 +632,7 @@ function renderProfitDailySummary() {
   const rowHTML = row => `<tr>
     <td>${escapeHtml(row.label)}</td>
     <td class="num">${formatNumber(row.units)}</td>
+    ${estimatedSalesCell(row)}
     <td class="num">${formatNumber(row.refund_total)}</td>
     <td class="num">${formatNumber(row.refund_orders)}</td>
     <td class="num">${formatNumber(row.sales_chargebacks)}</td>
@@ -615,11 +640,111 @@ function renderProfitDailySummary() {
     <td class="num">${formatNumber(row.buyer_chargebacks)}</td>
     ${amountCells(row)}
   </tr>`;
-  document.getElementById("profit-summary-body").innerHTML = rows.map(rowHTML).join("") || emptyRow(22, "所选区间没有数据");
+  document.getElementById("profit-summary-body").innerHTML = rows.map(rowHTML).join("") || emptyRow(23, "所选区间没有数据");
   const totals = data.totals;
   document.getElementById("profit-summary-foot").innerHTML = totals
-    ? `<tr class="totals-row"><td>合计</td><td class="num">${formatNumber(totals.units)}</td><td class="num">${formatNumber(totals.refund_total)}</td><td class="num">${formatNumber(totals.refund_orders)}</td><td class="num">${formatNumber(totals.sales_chargebacks)}</td><td class="num">${formatNumber(totals.freight_chargebacks)}</td><td class="num">${formatNumber(totals.buyer_chargebacks)}</td>${amountCells(totals)}</tr>`
+    ? `<tr class="totals-row"><td>合计</td><td class="num">${formatNumber(totals.units)}</td>${estimatedSalesCell(totals)}<td class="num">${formatNumber(totals.refund_total)}</td><td class="num">${formatNumber(totals.refund_orders)}</td><td class="num">${formatNumber(totals.sales_chargebacks)}</td><td class="num">${formatNumber(totals.freight_chargebacks)}</td><td class="num">${formatNumber(totals.buyer_chargebacks)}</td>${amountCells(totals)}</tr>`
     : "";
+}
+
+async function loadProfitSKUSummary() {
+  const refresh = document.getElementById("profit-sku-refresh");
+  refresh.classList.add("syncing");
+  refresh.disabled = true;
+  const body = document.getElementById("profit-sku-body");
+  body.innerHTML = emptyRow(11, "正在读取 SKU 利润");
+  try {
+    const params = new URLSearchParams();
+    if (state.profitSKU.start) params.set("start", state.profitSKU.start);
+    if (state.profitSKU.end) params.set("end", state.profitSKU.end);
+    if (state.profitSKU.shopKey) params.set("shop_key", state.profitSKU.shopKey);
+    const response = await api(`/api/profit/sku-summary?${params}`);
+    state.profitSKU.data = response.data;
+    state.profitSKU.loaded = true;
+    renderProfitSKUSummary();
+    if (state.view === "profit-sku") updateTopbarForView();
+    showError("");
+  } catch (error) {
+    body.innerHTML = emptyRow(11, error.message);
+    showError(error.message);
+  } finally {
+    refresh.classList.remove("syncing");
+    refresh.disabled = false;
+    lucide.createIcons();
+  }
+}
+
+function renderProfitSKUSummary() {
+  const data = state.profitSKU.data || {};
+  const rows = data.rows || [];
+  setText("profit-sku-range", `${data.range?.start || "--"} ~ ${data.range?.end || "--"}`);
+  const formatUSD = value => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
+  const rowHTML = row => `<tr>
+    <td><span class="sku-code">${escapeHtml(row.platform_sku)}</span>${row.sku_name ? `<span class="sku-name">${escapeHtml(row.sku_name)}</span>` : ""}</td>
+    <td class="num">${formatNumber(row.units)}</td>
+    <td class="num">${formatUSD(row.estimated_sales_amount)}<span class="status-secondary">覆盖 ${formatNumber(row.estimated_sales_matched)}/${formatNumber(row.estimated_sales_total)}</span></td>
+    <td class="num">${formatNumber(row.refund_orders)}</td>
+    <td class="num">${formatNumber(row.sales_chargebacks)}</td>
+    <td class="num">${formatUSD(row.sales_chargeback_amount)}</td>
+    <td class="num">${formatNumber(row.freight_chargebacks)}</td>
+    <td class="num">${formatUSD(row.freight_chargeback_amount)}</td>
+    <td class="num">${formatUSD(row.sales_receipt_amount)}</td>
+    <td class="num">${formatUSD(row.freight_receipt_amount)}</td>
+    <td class="num">${formatUSD(row.payback_amount)}</td>
+  </tr>`;
+  document.getElementById("profit-sku-body").innerHTML = rows.map(rowHTML).join("") || emptyRow(11, "所选条件没有数据");
+}
+
+async function loadProfitUnsettledSummary() {
+  const refresh = document.getElementById("profit-unsettled-refresh");
+  refresh.classList.add("syncing");
+  refresh.disabled = true;
+  const shopBody = document.getElementById("profit-unsettled-shop-body");
+  const skuBody = document.getElementById("profit-unsettled-sku-body");
+  shopBody.innerHTML = emptyRow(8, "正在读取未出账预估");
+  skuBody.innerHTML = emptyRow(5, "正在读取未出账预估");
+  try {
+    const params = new URLSearchParams();
+    if (state.profitUnsettled.shopKey) params.set("shop_key", state.profitUnsettled.shopKey);
+    const response = await api(`/api/profit/unsettled-summary?${params}`);
+    state.profitUnsettled.data = response.data;
+    state.profitUnsettled.loaded = true;
+    renderProfitUnsettledSummary();
+    showError("");
+  } catch (error) {
+    shopBody.innerHTML = emptyRow(8, error.message);
+    skuBody.innerHTML = emptyRow(5, error.message);
+    showError(error.message);
+  } finally {
+    refresh.classList.remove("syncing");
+    refresh.disabled = false;
+    lucide.createIcons();
+  }
+}
+
+function renderProfitUnsettledSummary() {
+  const data = state.profitUnsettled.data || {};
+  const formatUSD = value => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
+  const shops = data.shops || [];
+  document.getElementById("profit-unsettled-shop-body").innerHTML = shops.map(shop => `<tr>
+    <td>${escapeHtml(shop.shop_key)}</td>
+    <td class="num">${formatUSD(shop.sales_receipt)}</td>
+    <td class="num">${formatUSD(shop.sales_receipt_after_discount)}</td>
+    <td class="num">${formatUSD(shop.sales_chargeback)}</td>
+    <td class="num">${formatUSD(shop.freight_receipt)}</td>
+    <td class="num">${formatUSD(shop.freight_receipt_after_discount)}</td>
+    <td class="num">${formatUSD(shop.freight_chargeback)}</td>
+    <td class="num">${formatUSD(shop.pending_shipping_label_fee)}</td>
+  </tr>`).join("") || emptyRow(8, "没有未出账数据");
+
+  const skus = data.skus || [];
+  document.getElementById("profit-unsettled-sku-body").innerHTML = skus.map(sku => `<tr>
+    <td>${escapeHtml(sku.shop_key)}</td>
+    <td>${escapeHtml(String(sku.sku_id))}</td>
+    <td><span class="sku-name">${escapeHtml(sku.sku_name)}</span></td>
+    <td class="num">${formatNumber(sku.quantity)}</td>
+    <td class="num">${formatUSD(sku.declared_total)}</td>
+  </tr>`).join("") || emptyRow(5, "没有未出账数据");
 }
 
 async function loadWarehouses() {

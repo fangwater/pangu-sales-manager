@@ -43,6 +43,60 @@ func (s *APIServer) profitDailySummary(writer http.ResponseWriter, request *http
 	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: data})
 }
 
+func (s *APIServer) profitSKUSummary(writer http.ResponseWriter, request *http.Request) {
+	ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
+	defer cancel()
+	location, err := time.LoadLocation(s.timezone)
+	if err != nil {
+		location = time.FixedZone("CST", 8*60*60)
+	}
+	now := time.Now().In(location)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
+
+	end := today.AddDate(0, 0, 1)
+	if raw := strings.TrimSpace(request.URL.Query().Get("end")); raw != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", raw, location)
+		if err != nil {
+			writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "end 参数格式应为 YYYY-MM-DD"})
+			return
+		}
+		end = parsed.AddDate(0, 0, 1)
+	}
+	start := end.AddDate(0, 0, -30)
+	if raw := strings.TrimSpace(request.URL.Query().Get("start")); raw != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", raw, location)
+		if err != nil {
+			writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "start 参数格式应为 YYYY-MM-DD"})
+			return
+		}
+		start = parsed
+	}
+	if !start.Before(end) {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "start 必须早于 end"})
+		return
+	}
+
+	shopKey := strings.TrimSpace(request.URL.Query().Get("shop_key"))
+	data, err := s.store.profitSKUSummary(ctx, s.timezone, start, end, shopKey)
+	if err != nil {
+		s.internalError(writer, "load temu profit sku summary", err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: data})
+}
+
+func (s *APIServer) profitUnsettledSummary(writer http.ResponseWriter, request *http.Request) {
+	ctx, cancel := context.WithTimeout(request.Context(), 10*time.Second)
+	defer cancel()
+	shopKey := strings.TrimSpace(request.URL.Query().Get("shop_key"))
+	data, err := s.store.profitUnsettledSummary(ctx, shopKey)
+	if err != nil {
+		s.internalError(writer, "load temu profit unsettled summary", err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: data})
+}
+
 func (s *APIServer) importProfit(writer http.ResponseWriter, request *http.Request) {
 	if !profitImporting.CompareAndSwap(false, true) {
 		writeJSON(writer, http.StatusConflict, apiResponse{Success: false, Error: "利润表正在导入"})

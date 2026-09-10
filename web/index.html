@@ -29,6 +29,8 @@
         <button class="nav-item" data-view="sku-prices"><i data-lucide="badge-dollar-sign"></i><span>SKU 价格</span></button>
         <button class="nav-item" data-view="profit"><i data-lucide="calculator"></i><span>TEMU 利润</span></button>
         <button class="nav-item" data-view="profit-summary"><i data-lucide="table-properties"></i><span>利润总表</span></button>
+        <button class="nav-item" data-view="profit-sku"><i data-lucide="package-search"></i><span>SKU 利润</span></button>
+        <button class="nav-item" data-view="profit-unsettled"><i data-lucide="hourglass"></i><span>未出账预估</span></button>
       </nav>
 
       <div class="source-status" id="source-status">
@@ -352,13 +354,14 @@
           <div class="panel-heading">
             <div><h2>TEMU 利润总表</h2><span id="profit-summary-range">--</span></div>
           </div>
-          <p class="profit-hint">毛利润 / 毛利率需要成本数据，暂未接入；税金代扣、税金退回、非订单交易费目前没有任何导入表可用，先占列显示"--"。</p>
+          <p class="profit-hint">毛利润 / 毛利率需要成本数据，暂未接入；税金代扣、税金退回、非订单交易费目前没有任何导入表可用，先占列显示"--"；推断销售额是按活动价格回填的订单单价估算的，回填覆盖率低时数字会明显偏小，覆盖率会标在括号里。</p>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th rowspan="2">日期</th>
                   <th rowspan="2" class="num">销量</th>
+                  <th rowspan="2" class="num">推断销售额</th>
                   <th rowspan="2" class="num">退款数量</th>
                   <th colspan="4">退款数量明细</th>
                   <th rowspan="2" class="num">回款额</th>
@@ -386,8 +389,109 @@
                   <th class="num">非订单交易费</th>
                 </tr>
               </thead>
-              <tbody id="profit-summary-body"><tr class="empty-row"><td colspan="22">正在读取利润总表</td></tr></tbody>
+              <tbody id="profit-summary-body"><tr class="empty-row"><td colspan="23">正在读取利润总表</td></tr></tbody>
               <tfoot id="profit-summary-foot"></tfoot>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-profit-sku">
+        <section class="filter-band" id="profit-sku-filters">
+          <label class="field compact">
+            <span>起始日期</span>
+            <input type="date" id="profit-sku-start">
+          </label>
+          <label class="field compact">
+            <span>结束日期</span>
+            <input type="date" id="profit-sku-end">
+          </label>
+          <label class="field compact">
+            <span>店铺</span>
+            <select id="profit-sku-shop">
+              <option value="">全部店铺</option>
+              <option value="panda-homes">Panda Homes</option>
+              <option value="panda-buy">Panda Buy</option>
+            </select>
+          </label>
+          <button class="primary-command" id="profit-sku-search" type="button"><i data-lucide="search"></i>查询</button>
+          <button class="icon-command quiet" id="profit-sku-refresh" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
+        </section>
+        <article class="panel table-panel full-height">
+          <div class="panel-heading">
+            <div><h2>SKU 利润</h2><span id="profit-sku-range">--</span></div>
+          </div>
+          <p class="profit-hint">履约违规、买家拒付、面单费类没有 SKU 归因（源表只有包裹号/运单号/PO号/订单号），只能在"利润总表"看店铺级汇总，这里看不到。</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th class="num">销量</th>
+                  <th class="num">推断销售额</th>
+                  <th class="num">取消数</th>
+                  <th class="num">销售冲回</th>
+                  <th class="num">销售冲回金额</th>
+                  <th class="num">运费冲回</th>
+                  <th class="num">运费冲回金额</th>
+                  <th class="num">销售回款</th>
+                  <th class="num">运费回款</th>
+                  <th class="num">回款额</th>
+                </tr>
+              </thead>
+              <tbody id="profit-sku-body"><tr class="empty-row"><td colspan="11">请选择日期区间后查询</td></tr></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-profit-unsettled">
+        <section class="filter-band" id="profit-unsettled-filters">
+          <label class="field compact">
+            <span>店铺</span>
+            <select id="profit-unsettled-shop">
+              <option value="">全部店铺</option>
+              <option value="panda-homes">Panda Homes</option>
+              <option value="panda-buy">Panda Buy</option>
+            </select>
+          </label>
+          <button class="icon-command quiet" id="profit-unsettled-refresh" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
+        </section>
+        <p class="profit-hint">这里全是预估——"结算数据-待处理款项"和"发货面单费-待出账"两张源表都没有日期字段，没法并入利润总表按天展示。等真实出账数据导入后，利润总表会自动用实际数字覆盖这里的预估。SKU 明细用的是 TEMU 内部数字 sku_id，跟"SKU 利润"页面用的 platform_sku 不是同一套编码，两边对不上号。</p>
+        <article class="panel table-panel">
+          <div class="panel-heading"><div><h2>按店铺预估</h2></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>店铺</th>
+                  <th class="num">销售回款</th>
+                  <th class="num">销售回款(已减优惠)</th>
+                  <th class="num">销售冲回</th>
+                  <th class="num">运费回款</th>
+                  <th class="num">运费回款(已减优惠)</th>
+                  <th class="num">运费冲回</th>
+                  <th class="num">待出账发货面单费</th>
+                </tr>
+              </thead>
+              <tbody id="profit-unsettled-shop-body"><tr class="empty-row"><td colspan="8">正在读取未出账预估</td></tr></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel table-panel full-height">
+          <div class="panel-heading"><div><h2>待处理款项 SKU 明细</h2></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>店铺</th>
+                  <th>SKU ID</th>
+                  <th>商品名</th>
+                  <th class="num">预估件数</th>
+                  <th class="num">预估申报总额</th>
+                </tr>
+              </thead>
+              <tbody id="profit-unsettled-sku-body"><tr class="empty-row"><td colspan="5">正在读取未出账预估</td></tr></tbody>
             </table>
           </div>
         </article>

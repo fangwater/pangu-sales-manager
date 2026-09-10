@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -44,6 +45,14 @@ type ProfitDailySummaryRow struct {
 	TaxWithheldAmount              *float64 `json:"tax_withheld_amount"`
 	TaxRefundAmount                *float64 `json:"tax_refund_amount"`
 	NonOrderTransactionFeeAmount   *float64 `json:"non_order_transaction_fee_amount"`
+
+	// EstimatedSalesAmount 是根据订单数量 * 活动价格回填的 unit_price 推断出的
+	// 销售额，跟上面结算类数据完全独立、不汇总进 PaybackAmount。回填覆盖率低时
+	// EstimatedSalesMatched/EstimatedSalesTotal 会明显小于订单行总数，前端要把
+	// 覆盖率展示出来，不能让人误以为这是完整数字。
+	EstimatedSalesAmount  float64 `json:"estimated_sales_amount"`
+	EstimatedSalesMatched int64   `json:"estimated_sales_matched"`
+	EstimatedSalesTotal   int64   `json:"estimated_sales_total"`
 }
 
 type ProfitDailySummaryResponse struct {
@@ -97,6 +106,13 @@ type profitDailyAmount struct {
 	Amount float64
 }
 
+type profitDailyEstimate struct {
+	Date    time.Time
+	Amount  float64
+	Matched int64
+	Total   int64
+}
+
 // profitDailySummary 汇总 TEMU 销量 / 退款分类 / 平台收入 / 平台支出，按 period 分桶。
 // 复用 analytics.go 里的 periodWindows/bucketStart/nextBucket/bucketLabel。
 func (s *Store) profitDailySummary(ctx context.Context, timezone, period, shopKey string) (ProfitDailySummaryResponse, error) {
@@ -109,8 +125,20 @@ func (s *Store) profitDailySummary(ctx context.Context, timezone, period, shopKe
 	}
 	now := time.Now().In(location)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
-	start, _ := periodWindows(period, today)
 	end := today.AddDate(0, 0, 1)
+
+	// Unlike the live sales dashboard, profit data arrives in bounded historical
+	// import batches rather than a continuous trailing window, so the range
+	// shown here is driven by what's actually in the data instead of an
+	// arbitrary "last N days/weeks/months" cutoff from today.
+	dataStart, found, err := s.queryProfitDataRangeStart(ctx, location, shopKey)
+	if err != nil {
+		return ProfitDailySummaryResponse{}, err
+	}
+	start := today
+	if found {
+		start = dataStart
+	}
 
 	units, err := s.queryProfitDailyUnits(ctx, timezone, start, end, shopKey)
 	if err != nil {
@@ -141,6 +169,10 @@ func (s *Store) profitDailySummary(ctx context.Context, timezone, period, shopKe
 		return ProfitDailySummaryResponse{}, err
 	}
 	platformReturnFees, err := s.queryProfitDailyPlatformReturnLabelFees(ctx, timezone, start, end, shopKey)
+	if err != nil {
+		return ProfitDailySummaryResponse{}, err
+	}
+	estimatedSales, err := s.queryProfitDailyEstimatedSales(ctx, timezone, start, end, shopKey)
 	if err != nil {
 		return ProfitDailySummaryResponse{}, err
 	}
@@ -223,6 +255,16 @@ func (s *Store) profitDailySummary(ctx context.Context, timezone, period, shopKe
 			totals.PlatformReturnLabelFeeAmount += p.Amount
 		}
 	}
+	for _, e := range estimatedSales {
+		if row := rowFor(e.Date); row != nil {
+			row.EstimatedSalesAmount += e.Amount
+			row.EstimatedSalesMatched += e.Matched
+			row.EstimatedSalesTotal += e.Total
+			totals.EstimatedSalesAmount += e.Amount
+			totals.EstimatedSalesMatched += e.Matched
+			totals.EstimatedSalesTotal += e.Total
+		}
+	}
 
 	rows := make([]ProfitDailySummaryRow, 0, len(order))
 	for _, key := range order {
@@ -238,6 +280,38 @@ func (s *Store) profitDailySummary(ctx context.Context, timezone, period, shopKe
 		Rows:   rows,
 		Totals: totals,
 	}, nil
+}
+
+// queryProfitDataRangeStart finds the earliest date-bucket boundary across
+// every table this summary draws from, so the shown range reflects what was
+// actually imported instead of a fixed trailing window from today.
+func (s *Store) queryProfitDataRangeStart(ctx context.Context, location *time.Location, shopKey string) (time.Time, bool, error) {
+	var earliest sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		SELECT MIN(d) FROM (
+			SELECT occurred_at AS d FROM normalized_orders WHERE platform='temu' AND ($1='' OR shop_key=$1)
+			UNION ALL
+			SELECT received_at FROM temu_profit_settled_flows WHERE received_at IS NOT NULL AND ($1='' OR shop_key=$1)
+			UNION ALL
+			SELECT accounted_at FROM temu_profit_buyer_chargebacks WHERE accounted_at IS NOT NULL AND ($1='' OR shop_key=$1)
+			UNION ALL
+			SELECT accounted_at FROM temu_profit_fulfillment_violations WHERE accounted_at IS NOT NULL AND ($1='' OR shop_key=$1)
+			UNION ALL
+			SELECT occurred_at FROM temu_profit_shipping_label_fees WHERE billing_phase='posted' AND occurred_at IS NOT NULL AND ($1='' OR shop_key=$1)
+			UNION ALL
+			SELECT occurred_at FROM temu_profit_return_label_fees WHERE occurred_at IS NOT NULL AND ($1='' OR shop_key=$1)
+			UNION ALL
+			SELECT accounted_at FROM temu_profit_platform_return_label_fees WHERE accounted_at IS NOT NULL AND ($1='' OR shop_key=$1)
+		) sources
+	`, shopKey).Scan(&earliest)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if !earliest.Valid {
+		return time.Time{}, false, nil
+	}
+	local := earliest.Time.In(location)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location), true, nil
 }
 
 func (s *Store) queryProfitDailyUnits(ctx context.Context, timezone string, start, end time.Time, shopKey string) ([]profitDailyUnit, error) {
@@ -258,6 +332,39 @@ func (s *Store) queryProfitDailyUnits(ctx context.Context, timezone string, star
 	for rows.Next() {
 		var row profitDailyUnit
 		if err := rows.Scan(&row.Date, &row.Units); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+// queryProfitDailyEstimatedSales infers a sales amount from order quantity *
+// unit_price, where unit_price has been backfilled from the activity price
+// estimation pipeline (order_price_backfill.go). Coverage is currently very
+// partial, so Matched/Total are returned alongside the amount so callers can
+// show how much of the day's order lines actually contributed.
+func (s *Store) queryProfitDailyEstimatedSales(ctx context.Context, timezone string, start, end time.Time, shopKey string) ([]profitDailyEstimate, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT (o.occurred_at AT TIME ZONE $1)::date,
+		       COALESCE(SUM(l.quantity * l.unit_price) FILTER (WHERE l.unit_price IS NOT NULL), 0),
+		       COUNT(*) FILTER (WHERE l.unit_price IS NOT NULL),
+		       COUNT(*)
+		FROM normalized_orders o
+		JOIN normalized_order_lines l ON l.order_id=o.id
+		WHERE o.platform='temu' AND o.sales_eligible
+		  AND o.occurred_at >= $2 AND o.occurred_at < $3
+		  AND ($4='' OR o.shop_key=$4)
+		GROUP BY 1 ORDER BY 1
+	`, timezone, start, end, shopKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []profitDailyEstimate
+	for rows.Next() {
+		var row profitDailyEstimate
+		if err := rows.Scan(&row.Date, &row.Amount, &row.Matched, &row.Total); err != nil {
 			return nil, err
 		}
 		result = append(result, row)

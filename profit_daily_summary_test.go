@@ -49,8 +49,8 @@ func TestProfitDailySummaryAggregatesAndNetsChargebacks(t *testing.T) {
 	}
 	if _, err := store.db.ExecContext(ctx, `
 		INSERT INTO normalized_order_lines
-			(order_id, source_line_key, platform_sku, warehouse_sku, quantity, warehouse_quantity)
-		VALUES ($1, 'L1', 'PS1', $2, 3, 3)
+			(order_id, source_line_key, platform_sku, warehouse_sku, quantity, warehouse_quantity, unit_price)
+		VALUES ($1, 'L1', 'PS1', $2, 3, 3, 12.5)
 	`, soldOrderID, warehouseSKU); err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +160,9 @@ func TestProfitDailySummaryAggregatesAndNetsChargebacks(t *testing.T) {
 	}
 	if totals.TaxWithheldAmount != nil || totals.TaxRefundAmount != nil || totals.NonOrderTransactionFeeAmount != nil {
 		t.Fatalf("tax/non-order fee columns should stay nil (no data source), got %+v", totals)
+	}
+	if totals.EstimatedSalesAmount != 37.5 || totals.EstimatedSalesMatched != 1 || totals.EstimatedSalesTotal != 1 {
+		t.Fatalf("estimated sales = amount:%v matched:%d total:%d, want 37.5/1/1", totals.EstimatedSalesAmount, totals.EstimatedSalesMatched, totals.EstimatedSalesTotal)
 	}
 
 	empty, err := store.profitDailySummary(ctx, "UTC", "day", "panda-buy-empty-shop")
