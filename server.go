@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -67,6 +68,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("POST /api/marketing/sku-prices/query", s.querySKUPrices)
 	mux.HandleFunc("POST /api/marketing/order-price-estimates/backfill", s.backfillOrderPriceEstimates)
 	mux.HandleFunc("GET /api/profit/summary", s.profitSummary)
+	mux.HandleFunc("GET /api/profit/daily-summary", s.profitDailySummary)
 	mux.HandleFunc("POST /api/profit/import", s.importProfit)
 	mux.HandleFunc("GET /", s.serveStatic)
 	return s.middleware(mux)
@@ -406,6 +408,22 @@ func (s *APIServer) updateMapping(writer http.ResponseWriter, request *http.Requ
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), 10*time.Second)
 	defer cancel()
+
+	// Panda Homes / Panda Buy mappings are now backed by xlwms-api-manager,
+	// the system that actually governs fulfillment routing. Write through to
+	// it first; the local sku_mappings row is just a cache and must not claim
+	// "mapped" unless xlwms actually accepted the pairing.
+	if storeCode, ok := temuStoreCodes[shop]; ok && platform == "temu" {
+		if payload.ConversionFactor != math.Trunc(payload.ConversionFactor) {
+			writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "conversion_factor must be a whole number for Temu SKU mappings (xlwms quantity is an integer)"})
+			return
+		}
+		if err := s.syncer.xlwmsClient.CreateMapping(ctx, storeCode, platformSKU, payload.WarehouseSKU, int(payload.ConversionFactor)); err != nil {
+			writeJSON(writer, http.StatusBadGateway, apiResponse{Success: false, Error: "xlwms rejected the mapping write: " + err.Error()})
+			return
+		}
+	}
+
 	err = s.store.updateManualMapping(ctx, platform, shop, platformSKU, payload.WarehouseSKU, payload.ConversionFactor)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(writer, http.StatusNotFound, apiResponse{Success: false, Error: "mapping not found"})

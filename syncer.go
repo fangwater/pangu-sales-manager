@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"pangu-sales-manager/internal/xlwms"
 )
 
 var errSyncRunning = errors.New("a data sync is already running")
@@ -22,21 +24,23 @@ type SyncCounts struct {
 }
 
 type Syncer struct {
-	store   *Store
-	shein   *sql.DB
-	temu    *sql.DB
-	xlwms   *sql.DB
-	logger  *slog.Logger
-	running atomic.Bool
+	store       *Store
+	shein       *sql.DB
+	temu        *sql.DB
+	xlwms       *sql.DB
+	xlwmsClient *xlwms.Client
+	logger      *slog.Logger
+	running     atomic.Bool
 }
 
 func newSyncer(config Config, store *Store, logger *slog.Logger) *Syncer {
 	return &Syncer{
-		store:  store,
-		shein:  openSource(config.SheinDatabaseURL),
-		temu:   openSource(config.TemuDatabaseURL),
-		xlwms:  openSource(config.XLWMSDatabaseURL),
-		logger: logger,
+		store:       store,
+		shein:       openSource(config.SheinDatabaseURL),
+		temu:        openSource(config.TemuDatabaseURL),
+		xlwms:       openSource(config.XLWMSDatabaseURL),
+		xlwmsClient: xlwms.NewClient(config.XLWMSAPIManagerBaseURL),
+		logger:      logger,
 	}
 }
 
@@ -112,6 +116,10 @@ func (s *Syncer) Run(ctx context.Context) (counts SyncCounts, err error) {
 		if sourceErr != nil {
 			err = errors.Join(err, fmt.Errorf("sync Temu %s: %w", shop.key, sourceErr))
 		}
+	}
+
+	if mappingErr := s.syncXLWMSMappings(ctx); mappingErr != nil {
+		err = errors.Join(err, fmt.Errorf("sync xlwms SKU mappings: %w", mappingErr))
 	}
 
 	if inventoryErr != nil {

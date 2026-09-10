@@ -28,6 +28,7 @@
         <button class="nav-item" data-view="activity-prices"><i data-lucide="circle-dollar-sign"></i><span>活动价格</span></button>
         <button class="nav-item" data-view="sku-prices"><i data-lucide="badge-dollar-sign"></i><span>SKU 价格</span></button>
         <button class="nav-item" data-view="profit"><i data-lucide="calculator"></i><span>TEMU 利润</span></button>
+        <button class="nav-item" data-view="profit-summary"><i data-lucide="table-properties"></i><span>利润总表</span></button>
       </nav>
 
       <div class="source-status" id="source-status">
@@ -325,6 +326,68 @@
             <table>
               <thead><tr><th>数据表</th><th class="num">当前行数</th><th class="num">本次新增</th><th class="num">本次覆盖</th></tr></thead>
               <tbody id="profit-table-body"><tr class="empty-row"><td colspan="4">等待读取利润表</td></tr></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-profit-summary">
+        <section class="filter-band" id="profit-summary-filters">
+          <div class="segmented" aria-label="统计周期" id="profit-summary-period">
+            <button type="button" class="active" data-summary-period="day">日</button>
+            <button type="button" data-summary-period="week">周</button>
+            <button type="button" data-summary-period="month">月</button>
+          </div>
+          <label class="field compact">
+            <span>店铺</span>
+            <select id="profit-summary-shop">
+              <option value="">全部店铺</option>
+              <option value="panda-homes">Panda Homes</option>
+              <option value="panda-buy">Panda Buy</option>
+            </select>
+          </label>
+          <button class="icon-command quiet" id="profit-summary-refresh" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
+        </section>
+        <article class="panel table-panel full-height">
+          <div class="panel-heading">
+            <div><h2>TEMU 利润总表</h2><span id="profit-summary-range">--</span></div>
+          </div>
+          <p class="profit-hint">毛利润 / 毛利率需要成本数据，暂未接入；税金代扣、税金退回、非订单交易费目前没有任何导入表可用，先占列显示"--"。</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th rowspan="2">日期</th>
+                  <th rowspan="2" class="num">销量</th>
+                  <th rowspan="2" class="num">退款数量</th>
+                  <th colspan="4">退款数量明细</th>
+                  <th rowspan="2" class="num">回款额</th>
+                  <th colspan="2">平台收入</th>
+                  <th colspan="12">平台支出</th>
+                </tr>
+                <tr>
+                  <th class="num">取消</th>
+                  <th class="num">销售冲回</th>
+                  <th class="num">运费冲回</th>
+                  <th class="num">买家拒付</th>
+                  <th class="num">销售回款</th>
+                  <th class="num">运费回款</th>
+                  <th class="num">销售冲回</th>
+                  <th class="num">运费冲回</th>
+                  <th class="num">履约违规-延迟到货</th>
+                  <th class="num">履约违规-虚假发货</th>
+                  <th class="num">买家拒付</th>
+                  <th class="num">发货面单费</th>
+                  <th class="num">退货面单费-商家仓</th>
+                  <th class="num">退货面单费-第三方仓</th>
+                  <th class="num">退货面单费平台承担</th>
+                  <th class="num">税金代扣</th>
+                  <th class="num">税金退回</th>
+                  <th class="num">非订单交易费</th>
+                </tr>
+              </thead>
+              <tbody id="profit-summary-body"><tr class="empty-row"><td colspan="22">正在读取利润总表</td></tr></tbody>
+              <tfoot id="profit-summary-foot"></tfoot>
             </table>
           </div>
         </article>

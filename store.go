@@ -292,6 +292,34 @@ func (s *Store) replaceInventory(ctx context.Context, warehouses []Warehouse, in
 	return len(inventory), nil
 }
 
+// upsertXLWMSMapping writes a mapping sourced from the authoritative
+// xlwms-api-manager product-pairing system. Unlike upsertMapping, this always
+// overwrites the row, including previously 'manual' entries — xlwms is now
+// the source of truth, and manual edits are themselves written through to
+// xlwms (see updateManualMapping's caller), so a manual row and an xlwms row
+// should already agree by the next sync.
+func (s *Store) upsertXLWMSMapping(ctx context.Context, tx *sql.Tx, platform, shop, platformSKU, warehouseSKU string, factor float64) error {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO canonical_skus(warehouse_sku) VALUES ($1)
+		ON CONFLICT (warehouse_sku) DO NOTHING
+	`, warehouseSKU); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO sku_mappings(
+			platform, shop_key, platform_sku, warehouse_sku, conversion_factor,
+			mapping_source, mapping_status, updated_at
+		) VALUES ($1,$2,$3,$4,$5,'xlwms','mapped',now())
+		ON CONFLICT (platform, shop_key, platform_sku) DO UPDATE SET
+			warehouse_sku=EXCLUDED.warehouse_sku,
+			conversion_factor=EXCLUDED.conversion_factor,
+			mapping_source='xlwms',
+			mapping_status='mapped',
+			updated_at=now()
+	`, platform, shop, platformSKU, warehouseSKU, factor)
+	return err
+}
+
 func (s *Store) updateManualMapping(ctx context.Context, platform, shop, platformSKU, warehouseSKU string, factor float64) error {
 	if factor <= 0 {
 		return errors.New("conversion factor must be greater than zero")

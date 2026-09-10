@@ -30,6 +30,19 @@ func (s *APIServer) profitSummary(writer http.ResponseWriter, request *http.Requ
 	}})
 }
 
+func (s *APIServer) profitDailySummary(writer http.ResponseWriter, request *http.Request) {
+	ctx, cancel := context.WithTimeout(request.Context(), 10*time.Second)
+	defer cancel()
+	period := strings.TrimSpace(request.URL.Query().Get("period"))
+	shopKey := strings.TrimSpace(request.URL.Query().Get("shop_key"))
+	data, err := s.store.profitDailySummary(ctx, s.timezone, period, shopKey)
+	if err != nil {
+		s.internalError(writer, "load temu profit daily summary", err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: data})
+}
+
 func (s *APIServer) importProfit(writer http.ResponseWriter, request *http.Request) {
 	if !profitImporting.CompareAndSwap(false, true) {
 		writeJSON(writer, http.StatusConflict, apiResponse{Success: false, Error: "利润表正在导入"})

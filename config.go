@@ -13,6 +13,7 @@ type Config struct {
 	SheinDatabaseURL         string
 	TemuDatabaseURL          string
 	XLWMSDatabaseURL         string
+	XLWMSAPIManagerBaseURL   string
 	SyncInterval             time.Duration
 	BusinessTimezone         string
 	MarketingEnabled         bool
@@ -36,6 +37,7 @@ func loadConfig() (Config, error) {
 		SheinDatabaseURL:         envOr("SHEIN_DATABASE_URL", "host=pangutech.online port=5432 dbname=demo_app user=pangu_reader sslmode=require connect_timeout=10"),
 		TemuDatabaseURL:          envOr("TEMU_DATABASE_URL", "host=pangutech.online port=5432 dbname=temu_manager user=pangu_reader sslmode=require connect_timeout=10"),
 		XLWMSDatabaseURL:         envOr("XLWMS_DATABASE_URL", "host=pangutech.online port=5432 dbname=xlwms user=pangu_reader sslmode=require connect_timeout=10"),
+		XLWMSAPIManagerBaseURL:   envOr("XLWMS_API_MANAGER_BASE_URL", "https://pangutech.online/warehouse-console/api"),
 		SyncInterval:             durationOr("SYNC_INTERVAL", time.Minute),
 		BusinessTimezone:         envOr("BUSINESS_TIMEZONE", "Asia/Shanghai"),
 		MarketingEnabled:         marketingEnabled,

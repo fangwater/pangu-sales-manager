@@ -15,6 +15,7 @@ const state = {
   activity: { items: [], meta: {}, page: 1, pageSize: 20, loaded: false, sites: new Map(), types: new Map(), controller: null },
   skuPrices: { items: [], meta: {}, page: 1, pageSize: 30, loaded: false, controller: null },
   profit: { summary: null, lastResult: null },
+  profitSummary: { period: "day", shopKey: "", data: null, loaded: false },
 };
 
 const viewMeta = {
@@ -26,6 +27,7 @@ const viewMeta = {
   "activity-prices": ["活动价格", "TEMU 当前报名活动生效结果"],
   "sku-prices": ["SKU 价格", "TEMU 分钟价格解析结果"],
   profit: ["TEMU 利润", "账单表格入库与增量覆盖"],
+  "profit-summary": ["利润总表", "TEMU 销量 / 退款 / 回款按天汇总"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -75,6 +77,16 @@ function bindEvents() {
   document.getElementById("sku-price-next").addEventListener("click", () => changeSKUPricePage(1));
   document.getElementById("profit-upload-form").addEventListener("submit", uploadProfitFile);
   document.getElementById("profit-refresh").addEventListener("click", loadProfitSummary);
+  document.querySelectorAll("[data-summary-period]").forEach(button => button.addEventListener("click", () => {
+    state.profitSummary.period = button.dataset.summaryPeriod;
+    document.querySelectorAll("[data-summary-period]").forEach(item => item.classList.toggle("active", item === button));
+    loadProfitDailySummary();
+  }));
+  document.getElementById("profit-summary-shop").addEventListener("change", event => {
+    state.profitSummary.shopKey = event.target.value;
+    loadProfitDailySummary();
+  });
+  document.getElementById("profit-summary-refresh").addEventListener("click", loadProfitDailySummary);
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
 
@@ -84,20 +96,21 @@ async function switchView(view) {
   document.querySelectorAll(".view").forEach(section => section.classList.toggle("active", section.id === `view-${view}`));
   document.getElementById("page-title").textContent = viewMeta[view][0];
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
-  document.getElementById("global-filters").hidden = view === "mappings" || view === "orders" || view === "activity-prices" || view === "sku-prices" || view === "profit";
+  document.getElementById("global-filters").hidden = view === "mappings" || view === "orders" || view === "activity-prices" || view === "sku-prices" || view === "profit" || view === "profit-summary";
   if (view === "mappings") await loadMappings();
   if (view === "orders") await loadOrders();
   if (view === "warehouses") renderWarehouseChart();
   if (view === "activity-prices" && !state.activity.loaded) await loadActivityPrices();
   if (view === "sku-prices" && !state.skuPrices.loaded) await loadSKUPrices();
   if (view === "profit") await loadProfitSummary();
+  if (view === "profit-summary" && !state.profitSummary.loaded) await loadProfitDailySummary();
   updateTopbarForView();
 
   const activeNavigation = document.querySelector(`[data-view="${view}"]`);
   if (activeNavigation && window.innerWidth <= 820) activeNavigation.scrollIntoView({ block: "nearest", inline: "nearest" });
 
   const url = new URL(window.location.href);
-  if (view === "activity-prices" || view === "sku-prices" || view === "profit") url.searchParams.set("view", view);
+  if (view === "activity-prices" || view === "sku-prices" || view === "profit" || view === "profit-summary") url.searchParams.set("view", view);
   else url.searchParams.delete("view");
   window.history.replaceState({}, "", url);
 }
@@ -464,7 +477,7 @@ function formatActivityTime(value) { return value ? new Intl.DateTimeFormat("zh-
 function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 
 function updateTopbarForView() {
-  const snapshotView = state.view === "activity-prices" || state.view === "sku-prices" || state.view === "profit";
+  const snapshotView = state.view === "activity-prices" || state.view === "sku-prices" || state.view === "profit" || state.view === "profit-summary";
   document.getElementById("sync-button").hidden = snapshotView;
   if (state.view === "activity-prices") {
     setText("updated-at", `活动快照 ${formatDateTime(state.activity.meta.synced_at)}`);
@@ -472,6 +485,8 @@ function updateTopbarForView() {
     setText("updated-at", `价格快照 ${formatDateTime(state.skuPrices.items[0]?.update_at)}`);
   } else if (state.view === "profit") {
     setText("updated-at", `利润导入 ${formatDateTime(state.profit.summary?.latest_import?.completed_at || state.profit.summary?.latest_import?.started_at)}`);
+  } else if (state.view === "profit-summary") {
+    setText("updated-at", `统计区间 ${state.profitSummary.data?.range?.start || "--"} ~ ${state.profitSummary.data?.range?.end || "--"}`);
   } else if (state.dashboard) {
     setText("updated-at", `更新于 ${formatDateTime(state.dashboard.generated_at)}`);
   }
@@ -548,6 +563,63 @@ async function uploadProfitFile(event) {
     button.classList.remove("syncing");
     lucide.createIcons();
   }
+}
+
+async function loadProfitDailySummary() {
+  const refresh = document.getElementById("profit-summary-refresh");
+  refresh.classList.add("syncing");
+  refresh.disabled = true;
+  const body = document.getElementById("profit-summary-body");
+  body.innerHTML = emptyRow(22, "正在读取利润总表");
+  try {
+    const params = new URLSearchParams({ period: state.profitSummary.period });
+    if (state.profitSummary.shopKey) params.set("shop_key", state.profitSummary.shopKey);
+    const response = await api(`/api/profit/daily-summary?${params}`);
+    state.profitSummary.data = response.data;
+    state.profitSummary.loaded = true;
+    renderProfitDailySummary();
+    if (state.view === "profit-summary") updateTopbarForView();
+    showError("");
+  } catch (error) {
+    body.innerHTML = emptyRow(22, error.message);
+    showError(error.message);
+  } finally {
+    refresh.classList.remove("syncing");
+    refresh.disabled = false;
+    lucide.createIcons();
+  }
+}
+
+function renderProfitDailySummary() {
+  const data = state.profitSummary.data || {};
+  const rows = data.rows || [];
+  setText("profit-summary-range", `${data.range?.start || "--"} ~ ${data.range?.end || "--"}`);
+  const formatUSD = value => value == null ? "--" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
+  const amountCells = row => [
+    row.payback_amount,
+    row.sales_receipt_amount, row.freight_receipt_amount,
+    row.sales_chargeback_amount, row.freight_chargeback_amount,
+    row.fulfillment_delay_amount, row.fulfillment_false_ship_amount,
+    row.buyer_chargeback_amount, row.shipping_label_fee_amount,
+    row.return_label_fee_merchant_amount, row.return_label_fee_third_party_amount,
+    row.platform_return_label_fee_amount,
+    row.tax_withheld_amount, row.tax_refund_amount, row.non_order_transaction_fee_amount,
+  ].map(value => `<td class="num">${formatUSD(value)}</td>`).join("");
+  const rowHTML = row => `<tr>
+    <td>${escapeHtml(row.label)}</td>
+    <td class="num">${formatNumber(row.units)}</td>
+    <td class="num">${formatNumber(row.refund_total)}</td>
+    <td class="num">${formatNumber(row.refund_orders)}</td>
+    <td class="num">${formatNumber(row.sales_chargebacks)}</td>
+    <td class="num">${formatNumber(row.freight_chargebacks)}</td>
+    <td class="num">${formatNumber(row.buyer_chargebacks)}</td>
+    ${amountCells(row)}
+  </tr>`;
+  document.getElementById("profit-summary-body").innerHTML = rows.map(rowHTML).join("") || emptyRow(22, "所选区间没有数据");
+  const totals = data.totals;
+  document.getElementById("profit-summary-foot").innerHTML = totals
+    ? `<tr class="totals-row"><td>合计</td><td class="num">${formatNumber(totals.units)}</td><td class="num">${formatNumber(totals.refund_total)}</td><td class="num">${formatNumber(totals.refund_orders)}</td><td class="num">${formatNumber(totals.sales_chargebacks)}</td><td class="num">${formatNumber(totals.freight_chargebacks)}</td><td class="num">${formatNumber(totals.buyer_chargebacks)}</td>${amountCells(totals)}</tr>`
+    : "";
 }
 
 async function loadWarehouses() {

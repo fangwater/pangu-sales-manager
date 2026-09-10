@@ -126,6 +126,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .row-command:hover { background: var(--teal-soft); color: var(--teal); }
 .action-col { width: 46px; }
 .empty-row td { height: 180px; color: var(--muted); text-align: center; }
+.totals-row td { background: #fafbfb; font-weight: 600; border-top: 1px solid #edf0ef; }
 
 .search-box { position: relative; display: block; }
 .search-box svg { position: absolute; left: 9px; top: 8px; width: 16px; height: 16px; color: var(--muted); }
