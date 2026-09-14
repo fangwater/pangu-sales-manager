@@ -243,43 +243,7 @@ func (s *Syncer) readShein(ctx context.Context, warehouses []Warehouse, inventor
 		return nil, nil, err
 	}
 
-	lineRows, err := s.shein.QueryContext(ctx, `
-		WITH expanded AS (
-			SELECT o.order_no, item
-			FROM shein_beauty_hangers_home.shein_orders o
-			CROSS JOIN LATERAL jsonb_array_elements(
-				CASE WHEN jsonb_typeof(o.detail_payload->'orderGoodsInfoList')='array'
-				     THEN o.detail_payload->'orderGoodsInfoList' ELSE '[]'::jsonb END
-			) item
-			WHERE ($1::timestamptz IS NULL OR o.last_seen_at >= $1)
-		), fallbacks AS (
-			SELECT COALESCE(NULLIF(item->>'skuCode',''), NULLIF(item->>'sellerSku','')) AS platform_sku,
-			       MAX(NULLIF(item->>'sellerSku','')) AS seller_sku
-			FROM expanded
-			GROUP BY COALESCE(NULLIF(item->>'skuCode',''), NULLIF(item->>'sellerSku',''))
-		)
-		SELECT e.order_no,
-		       COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku','')) AS platform_sku,
-		       COALESCE(MAX(m.warehouse_sku), MAX(f.seller_sku), MAX(e.item->>'skuCode')),
-		       MAX(COALESCE(e.item->>'goodsTitle','')),
-		       MAX(COALESCE(e.item->>'sellerSku','')),
-		       MAX(COALESCE(e.item->>'warehouseName','')),
-		       COUNT(*)::numeric,
-		       COALESCE(MAX(m.warehouse_qty),1),
-		       CASE WHEN COUNT(m.shein_sku)>0 THEN 'shein_sku_mappings' ELSE 'seller_sku_fallback' END,
-		       CASE WHEN COUNT(m.shein_sku)>0 THEN 'mapped' ELSE 'inferred' END,
-		       MAX(NULLIF(e.item->>'sellerCurrencyPrice','')::numeric),
-		       MAX(COALESCE(e.item->>'saleCurrency','')),
-		       jsonb_build_object('items',jsonb_agg(e.item))
-		FROM expanded e
-		LEFT JOIN shein_beauty_hangers_home.shein_sku_mappings m
-		  ON m.enabled AND m.shein_sku=e.item->>'skuCode'
-		LEFT JOIN fallbacks f
-		  ON f.platform_sku=COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku',''))
-		WHERE COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku','')) IS NOT NULL
-		GROUP BY e.order_no, COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku',''))
-		ORDER BY e.order_no, platform_sku
-	`, nullableTime(since))
+	lineRows, err := s.shein.QueryContext(ctx, sheinLineQuery, nullableTime(since))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -314,6 +278,35 @@ func (s *Syncer) readShein(ctx context.Context, warehouses []Warehouse, inventor
 	}
 	return orders, lines, lineRows.Err()
 }
+
+const sheinLineQuery = `
+		WITH expanded AS (
+			SELECT o.order_no, item
+			FROM shein_beauty_hangers_home.shein_orders o
+			CROSS JOIN LATERAL jsonb_array_elements(
+				CASE WHEN jsonb_typeof(o.detail_payload->'orderGoodsInfoList')='array'
+				     THEN o.detail_payload->'orderGoodsInfoList' ELSE '[]'::jsonb END
+			) item
+			WHERE ($1::timestamptz IS NULL OR o.last_seen_at >= $1)
+		)
+		SELECT e.order_no,
+		       COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku','')) AS platform_sku,
+		       COALESCE(MAX(NULLIF(e.item->>'sellerSku','')), MAX(e.item->>'skuCode')),
+		       MAX(COALESCE(e.item->>'goodsTitle','')),
+		       MAX(COALESCE(e.item->>'sellerSku','')),
+		       MAX(COALESCE(e.item->>'warehouseName','')),
+		       COUNT(*)::numeric,
+		       1::numeric,
+		       'seller_sku_fallback',
+		       'inferred',
+		       MAX(NULLIF(e.item->>'sellerCurrencyPrice','')::numeric),
+		       MAX(COALESCE(e.item->>'saleCurrency','')),
+		       jsonb_build_object('items',jsonb_agg(e.item))
+		FROM expanded e
+		WHERE COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku','')) IS NOT NULL
+		GROUP BY e.order_no, COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku',''))
+		ORDER BY e.order_no, platform_sku
+	`
 
 func (s *Syncer) readTemu(ctx context.Context, shopKey, schema string, inventory []InventoryRow, since time.Time) ([]SourceOrder, []SourceLine, error) {
 	if schema != "temu_panda_homes" && schema != "temu_panda_buy" {

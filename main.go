@@ -123,22 +123,62 @@ func scheduleMarketingSync(ctx context.Context, syncer *marketing.Syncer, observ
 }
 
 func scheduleSync(ctx context.Context, syncer *Syncer, interval time.Duration, logger *slog.Logger) {
-	run := func() {
-		syncCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		defer cancel()
-		if _, err := syncer.Run(syncCtx); err != nil && !errors.Is(err, errSyncRunning) {
-			logger.Error("scheduled sync failed", "error", err)
-		}
-	}
-	run()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	consecutiveFailures := 0
 	for {
+		syncCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		_, err := syncer.Run(syncCtx)
+		cancel()
+
+		delay := interval
+		if err != nil && !errors.Is(err, errSyncRunning) {
+			var deferred *syncDeferredError
+			if errors.As(err, &deferred) {
+				delay = maxDuration(interval, deferred.RetryAfter)
+				logger.Warn("scheduled sync deferred", "error", err, "retry_in", delay)
+			} else {
+				consecutiveFailures++
+				delay = syncRetryDelay(interval, consecutiveFailures)
+				logger.Error("scheduled sync failed", "error", err, "retry_in", delay)
+			}
+		} else {
+			consecutiveFailures = 0
+		}
+
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
-			run()
+		case <-timer.C:
 		}
 	}
+}
+
+func syncRetryDelay(interval time.Duration, consecutiveFailures int) time.Duration {
+	maxDelay := 30 * time.Minute
+	if interval > maxDelay {
+		maxDelay = interval
+	}
+	delay := interval
+	for i := 0; i < consecutiveFailures && delay < maxDelay; i++ {
+		if delay > maxDelay/2 {
+			return maxDelay
+		}
+		delay *= 2
+	}
+	return minDuration(delay, maxDelay)
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
 }

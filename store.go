@@ -54,21 +54,38 @@ type SyncPlan struct {
 	Since map[string]time.Time
 }
 
+const (
+	fullSyncInterval         = 24 * time.Hour
+	emptyStoreFullRetryDelay = 30 * time.Minute
+)
+
+type syncDeferredError struct {
+	RetryAfter time.Duration
+}
+
+func (e *syncDeferredError) Error() string {
+	return fmt.Sprintf("full sync retry deferred for %s", e.RetryAfter.Round(time.Second))
+}
+
 func (s *Store) planSync(ctx context.Context) (SyncPlan, error) {
 	plan := SyncPlan{Mode: "incremental", Since: make(map[string]time.Time)}
 	var orderCount int64
-	var lastFull sql.NullTime
+	var lastFullAttempt sql.NullTime
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM normalized_orders`).Scan(&orderCount); err != nil {
 		return plan, err
 	}
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT MAX(completed_at) FROM sync_runs
-		WHERE status='succeeded' AND sync_mode='full'
-	`).Scan(&lastFull); err != nil {
+		SELECT MAX(started_at) FROM sync_runs
+		WHERE sync_mode='full'
+	`).Scan(&lastFullAttempt); err != nil {
 		return plan, err
 	}
-	if orderCount == 0 || !lastFull.Valid || time.Since(lastFull.Time) >= 24*time.Hour {
-		plan.Mode = "full"
+	mode, retryAfter := decideSyncMode(orderCount, lastFullAttempt, time.Now())
+	if retryAfter > 0 {
+		return plan, &syncDeferredError{RetryAfter: retryAfter}
+	}
+	plan.Mode = mode
+	if mode == "full" {
 		return plan, nil
 	}
 
@@ -92,6 +109,26 @@ func (s *Store) planSync(ctx context.Context) (SyncPlan, error) {
 		}
 	}
 	return plan, rows.Err()
+}
+
+func decideSyncMode(orderCount int64, lastFullAttempt sql.NullTime, now time.Time) (string, time.Duration) {
+	if !lastFullAttempt.Valid {
+		return "full", 0
+	}
+	elapsed := now.Sub(lastFullAttempt.Time)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	if orderCount == 0 {
+		if elapsed >= emptyStoreFullRetryDelay {
+			return "full", 0
+		}
+		return "", emptyStoreFullRetryDelay - elapsed
+	}
+	if elapsed >= fullSyncInterval {
+		return "full", 0
+	}
+	return "incremental", 0
 }
 
 func (s *Store) beginSync(ctx context.Context, mode string) (int64, error) {
@@ -236,10 +273,10 @@ func upsertMapping(ctx context.Context, tx *sql.Tx, line SourceLine) (string, fl
 			mapping_source, mapping_status, product_name, updated_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
 		ON CONFLICT (platform, shop_key, platform_sku) DO UPDATE SET
-			warehouse_sku=CASE WHEN sku_mappings.mapping_status='manual' THEN sku_mappings.warehouse_sku ELSE EXCLUDED.warehouse_sku END,
-			conversion_factor=CASE WHEN sku_mappings.mapping_status='manual' THEN sku_mappings.conversion_factor ELSE EXCLUDED.conversion_factor END,
-			mapping_source=CASE WHEN sku_mappings.mapping_status='manual' THEN sku_mappings.mapping_source ELSE EXCLUDED.mapping_source END,
-			mapping_status=CASE WHEN sku_mappings.mapping_status='manual' THEN sku_mappings.mapping_status ELSE EXCLUDED.mapping_status END,
+			warehouse_sku=CASE WHEN sku_mappings.mapping_status IN ('manual','mapped') AND EXCLUDED.mapping_status NOT IN ('manual','mapped') THEN sku_mappings.warehouse_sku ELSE EXCLUDED.warehouse_sku END,
+			conversion_factor=CASE WHEN sku_mappings.mapping_status IN ('manual','mapped') AND EXCLUDED.mapping_status NOT IN ('manual','mapped') THEN sku_mappings.conversion_factor ELSE EXCLUDED.conversion_factor END,
+			mapping_source=CASE WHEN sku_mappings.mapping_status IN ('manual','mapped') AND EXCLUDED.mapping_status NOT IN ('manual','mapped') THEN sku_mappings.mapping_source ELSE EXCLUDED.mapping_source END,
+			mapping_status=CASE WHEN sku_mappings.mapping_status IN ('manual','mapped') AND EXCLUDED.mapping_status NOT IN ('manual','mapped') THEN sku_mappings.mapping_status ELSE EXCLUDED.mapping_status END,
 			product_name=CASE WHEN EXCLUDED.product_name<>'' THEN EXCLUDED.product_name ELSE sku_mappings.product_name END,
 			updated_at=now()
 		RETURNING warehouse_sku, conversion_factor

@@ -6,7 +6,7 @@ Pangu 销售管理系统将 TEMU、SHEIN 订单与 XLWMS 仓库库存同步到�
 
 - `normalized_orders`：统一平台、店铺、订单状态、销售时间、仓库归属和原始 JSON。
 - `normalized_order_lines`：同时保留平台件数、仓库 SKU、换算系数和仓库换算量。
-- `sku_mappings`：平台 SKU 到仓库 SKU 的映射。TEMU 默认使用 `ext_code` 同码映射；SHEIN 使用源库的 `shein_sku_mappings`，缺失时标记为待确认。
+- `sku_mappings`：平台 SKU 到仓库 SKU 的映射。TEMU 默认使用 `ext_code` 同码映射；SHEIN 保留已有权威/人工映射，新 SKU 使用 `sellerSku` 推断，缺失时标记为待确认。
 - `warehouse_inventory`：XLWMS `integrated` 库存快照，按仓库与仓库 SKU 存储。
 - SHEIN 使用平台下单时间；TEMU 当前源表没有下单时间，使用 `first_seen_at` 并在 `occurred_at_source` 明确记录。
 - 退款/取消订单不进入销量统计，原始订单仍保留在标准订单库。
@@ -24,7 +24,7 @@ go build -o bin/pangu-sales-manager .
 ./bin/pangu-sales-manager
 ```
 
-默认监听 `127.0.0.1:18100`，生产由 Nginx 在 `80` 端口反代。每分钟执行增量同步，保留 5 分钟重叠窗口，并每 24 小时执行一次全量校准。
+默认监听 `127.0.0.1:18100`，生产由 Nginx 在 `80` 端口反代。每分钟执行增量同步，保留 5 分钟重叠窗口，并每 24 小时尝试一次全量校准。失败的全量任务不会在下一分钟再次全量执行；连续失败采用最长 30 分钟的指数退避。
 
 Temu 活动价格由同一服务直接拉取并计算，只在进程内保留最新完整快照，不写入 PostgreSQL。启动时立即拉取，默认每 1 分钟刷新一次；服务重启后接口会在首次同步完成前返回 `503`。
 
