@@ -1,236 +1,189 @@
-const systemGuideState = { controller: null };
-
-const guideSources = [
-  ["已出账", "对账中心－账务明细", "结算；拒付；履约违规 1 / 2；平台退货面单承担；处置费", "分工作表保存。结算流水参与回款，其他工作表参与费用收支。", "结算与费用"],
-  ["已出账", "结算数据－已到账款项－PO 明细账单", "流水 ID、PO、交易类型、到账金额与时间", "与账务明细的结算流水共用同一数据集，按店铺＋流水 ID 去重。", "结算明细"],
-  ["已出账", "结算数据－已到账款项－PO 聚合账单", "PO、商品行、销售 / 运费回款及冲回", "保存用于订单和商品核对；聚合金额不再次叠加进结算总额。", "订单核对"],
-  ["已出账", "发货面单费－已出账", "包裹号、运单号、账单类型、费用与记账时间", "按店铺汇总已出账费用；未关联到商品的费用不分配至 SKU。", "已出账费用"],
-  ["已出账", "退货面单费－退至商家仓", "资金账单 ID、PO、运单号、金额与时间", "按店铺汇总商家仓退货费用，未归因部分不分配至商品。", "商家仓费用"],
-  ["已出账", "退货面单费－退至第三方仓", "资金账单 ID、PO、运单号、金额与时间", "进入第三方仓退货费用，与商家仓分开展示。", "第三方仓费用"],
-  ["未出账", "结算数据－待处理款项", "PO、商品数量、申报金额、待回款与冲回", "作为待处理快照；检查与已到账 PO 的重叠，不自动核销。", "待回款"],
-  ["未出账", "发货面单费－待出账", "包裹号、运单号、预估面单费", "独立保存预估费用；按包裹、运单和账单信息检查跨状态重叠。", "待面单"],
+const systemGuideState = { model: "profit-summary", shop: "", selected: "calculate", controller: null, status: null };
+const reportModels = [
+  { id: "profit-summary", name: "财务总览", icon: "wallet", sources: [["已到账结算", "销售、运费与冲回", "到账时间 · 币种 · 金额", "settled"], ["平台费用账单", "面单、违规、拒付与处置", "记账时间 · 费用类型 · 金额", "fees"], ["订单与历史价格", "商品数量、单价与取消记录", "订单行 · SKU · 数量 · 匹配价格", "orders"]], group: ["按期间汇总", "店铺 → 日 / 周 / 月", "同类金额分别求和"], calculate: ["结算 + 费用", "回款减冲回，再计费用", "估算销售额单独展示"], output: ["收支报表", "趋势 · 瀑布图 · 明细", "未扣采购、头程等内部成本"], note: "没有账单的期间保留空白；订单销量、到账与费用分别按各自业务时间汇总。" },
+  { id: "profit-sku", name: "商品回款", icon: "package", sources: [["标准订单行", "SKU、数量与取消记录", "商品标识 · 数量 · 订单时间", "orders"], ["带 SKU 的结算", "销售回款与销售冲回", "店铺 · SKU · 到账金额", "settled"], ["订单匹配价格", "历史价格与订单行关联", "匹配单价 × 数量", "prices"]], group: ["关联商品", "店铺 + 平台 SKU", "订单与结算各自汇总"], calculate: ["回款 − 冲回", "得到已归因结算净额", "已定价行计算销售额"], output: ["商品回款报表", "排行榜 · 分布 · SKU 明细", "订单级费用尚未完整分摊"], note: "只归因带商品标识的结算；订单级运费和费用不强行分摊到商品。" },
+  { id: "profit-unsettled", name: "待结算", icon: "hourglass", sources: [["待处理回款快照", "销售、运费及两类冲回", "店铺 · PO · 币种 · 金额", "unsettled"], ["待出账面单", "面单费与待出账记录", "面单标识 · 费用 · 店铺", "shipping_pending"], ["已到账记录", "用于核对重复出现的 PO", "店铺 · PO · 到账记录", "settled"]], group: ["保留导入快照", "按店铺、币种分别汇总", "SKU 申报额单独汇总"], calculate: ["回款 − 冲回", "关联已到账 PO 检查重叠", "保留原额，不自动核销"], output: ["待结算报表", "金额构成 · 重叠 PO · 明细", "面单费与回款不直接相减"], note: "出现非零折后回款时暂停净额合计，等待口径确认。重叠 PO 需逐笔核对部分结算。" },
+  { id: "overview", name: "销售总览", icon: "chart-no-axes-combined", sources: [["TEMU / SHEIN 订单", "同步后的标准订单行", "平台 · 店铺 · 状态 · 数量", "orders"], ["SKU 映射", "平台商品与仓库商品配对", "平台 SKU · 仓库 SKU · 换算系数", "mappings"], ["XLWMS 库存", "最近一次成功库存快照", "仓库 · SKU · 可用库存", "inventory"]], group: ["筛选与归一", "平台 / 店铺 / 仓库", "数量按映射系数换算"], calculate: ["按日 / 周 / 月求和", "销量、订单数与同期变化", "关联当前库存"], output: ["销售总览", "销量趋势 · 平台分布", "TEMU 以首次采集时间记日"], note: "库存来自最近一次成功快照；销量以系统已保存的有效订单行为基础。" },
+  { id: "skus", name: "SKU 分析", icon: "boxes", sources: [["标准订单行", "当前及对比期间销量", "时间 · 仓库 SKU · 数量", "orders"], ["SKU 映射", "平台数量换算为仓库数量", "商品配对 · 换算系数", "mappings"], ["仓库库存", "商品可用库存", "仓库 SKU · 可用数量", "inventory"]], group: ["按仓库 SKU 聚合", "跨店铺与平台归并", "对比上一期间销量"], calculate: ["销量 + 库存分析", "增长、可售天数与需求预测", "零销量时不推算可售天数"], output: ["SKU 分析表", "商品销量与库存明细", "预测列展示数量"], note: "库存快照与订单时间独立；需求预测按系统已保存的订单计算。" },
+  { id: "warehouses", name: "仓库库存", icon: "warehouse", sources: [["XLWMS 库存", "各仓库保存的可用数量", "仓库编码 · SKU · 可用库存", "inventory"], ["归属仓库订单", "映射后的订单销量", "仓库编码 · 销量", "orders"], ["仓库目录", "仓库编码与名称", "仓库编码 · 展示名称", "warehouses"]], group: ["按仓库归并", "库存与订单分别汇总", "保留各仓库边界"], calculate: ["汇总库存与销量", "可用库存、销量、活跃商品", "无归属订单不强行分摊"], output: ["仓库报表", "仓库对比图 · 数量明细", "库存同步失败保留旧快照"], note: "仓库库存与本期销量使用不同时间口径，分别展示。" },
+  { id: "mappings", name: "SKU 映射", icon: "git-merge", sources: [["平台商品", "TEMU / SHEIN 商品标识", "平台 · 店铺 · SKU", "orders"], ["仓库商品", "XLWMS 商品标识", "仓库 SKU", "inventory"], ["配对记录", "自动匹配与手动修正", "配对来源 · 换算系数", "mappings"]], group: ["以平台商品定位", "平台 + 店铺 + SKU", "每个商品保存当前配对"], calculate: ["设置仓库 SKU", "平台数量 × 换算系数", "为销量与库存提供连接"], output: ["映射明细", "商品配对 · 系数 · 状态", "编辑后重新读取报表"], note: "映射系数改变数量换算；未映射商品不能直接归入仓库 SKU。" },
+  { id: "orders", name: "标准订单", icon: "list-ordered", sources: [["TEMU 订单", "采集到的订单与商品行", "店铺 · PO · SKU · 数量", "orders"], ["SHEIN 订单", "系统接入的订单记录", "店铺 · 订单号 · 状态", "orders"], ["SKU 配对与仓库", "商品换算与销售归属", "仓库 SKU · 换算系数", "mappings"]], group: ["统一订单结构", "平台 + 店铺 + 订单号", "保留商品行与时间来源"], calculate: ["状态与数量归一", "换算仓库商品数量", "标记订单日期的来源"], output: ["标准订单表", "平台 · 订单 · 仓库 · 商品行", "按页读取系统订单"], note: "TEMU 当前订单日期使用首次采集时间；日期来源在订单表中直接展示。" },
+  { id: "activity-prices", name: "活动价格", icon: "tags", sources: [["活动报名记录", "商品、活动类型与报名状态", "报名 ID · SKC · SKU", "activity"], ["站点活动价格", "活动与日常价格", "站点 · 币种 · 价格", "activity"], ["商品与库存证据", "当前商品清单与活动库存", "剩余库存 · 当前商品记录", "activity"]], group: ["关联活动商品", "报名 + SKC + SKU + 站点", "保留最近一次采集快照"], calculate: ["判断当前生效活动", "结合状态、库存及商品证据", "价格按分换算展示"], output: ["活动价格快照", "报名 · 商品 · 活动价 · 库存", "展示当前活动采集结果"], note: "快照表示最近采集时的状态，不能直接作为任意历史订单的成交价。" },
+  { id: "sku-prices", name: "SKU 价格", icon: "badge-dollar-sign", sources: [["日常商品价", "SKU 的日常价格", "SKU · 币种 · 日常价", "prices"], ["生效活动价", "当前有效活动的报价", "报名 ID · SKU · 活动价", "activity"], ["价格历史区间", "价格解析与更新时间", "起始时间 · 更新时间 · 来源", "prices"]], group: ["按 SKU 解析", "关联当前活动与日常报价", "保留价格变更的时间区间"], calculate: ["选择当前价格", "活动价或日常价", "用于订单行价格回填"], output: ["SKU 价格表", "当前价格 · 币种 · 来源", "原始分值除以 100 展示"], note: "价格表展示当前解析结果，财务估算使用已经回填到订单行的价格。" },
+  { id: "profit", name: "账单导入", icon: "file-input", sources: [["结算与费用文件", "按账单类型识别记录", "店铺 · 文件类型 · 币种", "files"], ["导入规则", "解析金额、日期与记录标识", "业务字段 · 唯一标识", "rules"], ["导入任务", "文件数、写入行与执行状态", "任务 ID · 执行时间", "imports"]], group: ["按数据集写入", "店铺与业务记录标识去重", "待处理与已到账分别保存"], calculate: ["更新对应数据集", "新增或更新业务记录", "记录导入结果"], output: ["导入统计", "各数据集行数与最近任务", "财务报表读取已保存账单"], note: "账单上传与订单库存同步独立；重复文件按业务标识更新记录。" },
 ];
-
-const guideAmounts = [
-  ["销售回款", "账务明细 · 结算 / PO 明细", "收入", "已接入", "按交易类型汇总结算流水。"],
-  ["运费回款", "账务明细 · 结算 / PO 明细", "收入", "已接入", "运费收入单列，不与销售回款混为同一笔。"],
-  ["销售冲回", "结算流水", "扣减", "已接入", "从销售回款中扣除，按结算流水的交易类型识别。"],
-  ["运费冲回", "结算流水", "扣减", "已接入", "从运费回款中扣除；与销售冲回分别计数。"],
-  ["延迟到货", "账务明细 · 履约违规 1", "支出", "已接入", "按负的绝对值汇总，原始导入金额保留。"],
-  ["虚假发货", "账务明细 · 履约违规 2", "支出", "已接入", "按负的绝对值汇总，与冲回属于不同费用。"],
-  ["买家拒付", "账务明细 · 支出－买家拒付", "支出", "已接入", "按负的绝对值汇总，笔数不当作退款件数。"],
-  ["发货面单费", "发货面单费－已出账", "按账单符号", "已接入", "费用保留账单正负方向；待出账面单不计入此处。"],
-  ["商家仓退货面单费", "退货面单费－退至商家仓", "按账单符号", "已接入", "独立分类，避免与第三方仓费用混淆。"],
-  ["第三方仓退货面单费", "退货面单费－退至第三方仓", "按账单符号", "已接入", "独立分类，保留资金账单 ID 供核对。"],
-  ["平台承担退货面单费", "账务明细 · 其他－退货面单费平台承担", "按账单符号", "已接入", "补偿单独展示并保留实际收支方向，不再次扣作费用。"],
-  ["处置费", "账务明细 · 支出－处置费", "支出", "已接入", "按负的绝对值计入平台费用收支。"],
-  ["税金代扣", "暂无对应数据源", "待确定", "未接入", "留空，不以零代替。"],
-  ["税金退回", "暂无对应数据源", "待确定", "未接入", "留空，需确认来源及收入 / 冲减口径。"],
-  ["非订单交易费", "暂无对应数据源", "待确定", "未接入", "留空，不能直接归入某个 SKU。"],
-];
-
-function guideBadge(text) {
-  const kind = /未|待|部分/.test(text) ? "pending" : "ready";
-  return `<span class="guide-badge ${kind}">${escapeHtml(text)}</span>`;
-}
-
-function guideArrow(label, pending = false) {
-  return `<div class="guide-arrow ${pending ? "pending" : ""}"><svg viewBox="0 0 60 28" role="img" aria-label="${label}"><path d="M2 14H52M43 5L52 14L43 23"/></svg><small>${label}</small></div>`;
-}
-
-function guideNode(kicker, title, detail, extra = "") {
-  return `<div class="guide-node ${extra}"><small>${kicker}</small><strong>${title}</strong><p>${detail}</p></div>`;
-}
-
-const guideReports = [
-  { view: "profit-summary", title: "财务总览", open: true,
-    source: "TEMU 标准订单、已到账结算流水、已出账面单费及其他平台费用；价格回填结果用于辅助销售额估算。",
-    calculation: "按店铺和日期筛选，先汇总每天的订单与账单，再按日 / 周 / 月分桶。销售及运费回款扣除两类冲回得到结算净额，再加有正负方向的平台费用得到平台收支净额。",
-    display: "指标卡展示金额与价格覆盖率；趋势图展示回款和费用，环图展示支出构成；期间表可展开各项费用，CSV 导出完整明细列。",
-    rule: "订单按标准订单日期，回款按到账时间，费用按记账时间。缺账单的期间显示空白；内部成本未接入，平台收支净额不能作为毛利。" },
-  { view: "profit-sku", title: "SKU 财务分析", open: true,
-    source: "标准订单商品行，以及带有商品 SKU 外部编码的结算流水。订单价格来自已有的价格回填结果。",
-    calculation: "订单按平台 SKU 汇总有效销量与已定价销售额；结算按 SKU 外部编码归组，合并到商品行，计算销售回款、销售冲回和已归因结算净额。分别统计价格匹配行数和取消订单行数。",
-    display: "销售回款前 10 名、价格覆盖卡和商品明细表。关键词筛选、排序与 CSV 作用于当前查询结果。",
-    rule: "没有对应结算流水的 SKU 显示无数据；运费和订单级费用尚未完整分摊到商品，已归因结算净额不能作为 SKU 利润。销量与结算使用各自业务日期。" },
-  { view: "profit-unsettled", title: "待结算检查", open: true,
-    source: "待处理款项快照、待出账面单快照，以及已到账结算流水和 PO 聚合数据。",
-    calculation: "按店铺和币种汇总销售 / 运费待回款及冲回。按同店铺 PO 查询是否已有到账记录；待出账面单按包裹、运单、账单类型和备注核对已出账记录。商品构成按平台 SKU ID 汇总数量与申报金额。",
-    display: "净待回款、待面单费和重叠 PO 指标；店铺核对表、SKU 申报金额构成表及 CSV。使用导入快照，不按日期分桶。",
-    rule: "重叠 PO 仅标记供核对，不自动删除或扣除。回款与面单尚未逐订单对齐，不能直接相减为利润；非零折后回款列会暂停净待回款合计。" },
-  { view: "overview", title: "销售总览",
-    source: "TEMU / SHEIN 标准订单与商品行、仓库 SKU 映射、XLWMS 库存快照。",
-    calculation: "筛选平台、店铺和仓库，只统计符合销售资格的订单。订单数去重，商品数量汇总；平台销量经映射换算成仓库销量。按日、周或月分桶，与前一个对应窗口比较增长率。",
-    display: "订单、销量、活跃 SKU、库存与映射覆盖指标；销量趋势、平台构成、SKU 排名、仓库销量和补货参考。日视图为近 14 日，周视图为近 12 周，月视图为近 6 个月。",
-    rule: "映射覆盖按已确认映射数除以全部映射数计算。销量受平台 / 店铺筛选影响，库存来自仓库快照、按仓库筛选，不表示该店铺独占的库存。" },
-  { view: "skus", title: "SKU 分析",
-    source: "与销售总览相同的订单商品行及库存快照，按仓库 SKU 汇总。需求预测使用最近 90 日的仓库换算销量序列。",
-    calculation: "汇总本期及前期销量、增长率和各仓可用库存。预测日销量基准为近 7 日均值的 65% 加近 28 日均值的 35%，叠加近 28 日趋势并限制极值，累计得到未来 7 / 30 日预测。",
-    display: "SKU 的销量、库存、增长率、需求预测与库存覆盖天数；可搜索商品并比较销售和补货需求。",
-    rule: "库存覆盖天数为可用库存除以预测日销量基准；基准为零时留空。预测可信度取决于销售历史长度与活跃天数，预测量不代表实际订单或确定的采购数量。" },
-  { view: "warehouses", title: "仓库库存",
-    source: "XLWMS 最近成功写入的库存快照，以及已经归属到仓库的标准订单商品行。",
-    calculation: "可用库存按仓库和仓库 SKU 求和；本期仓库销量按订单行的仓库归属汇总。库存 SKU 数统计可用库存非零的 SKU。",
-    display: "每个仓库的可用库存、库存 SKU 数与本期销售，配合仓库对比图查看库存和销售分布。",
-    rule: "库存是当前快照，销量是所选期间的统计。库存同步失败时保留上次成功快照；未归属仓库的销售单独保留，不硬分配到已有仓库。" },
-  { view: "orders", title: "标准订单",
-    source: "TEMU 两个店铺与 SHEIN 的订单及商品数据。来源同步后转为统一订单结构。",
-    calculation: "按平台、店铺、来源订单号识别同一订单并更新状态；商品行保存平台数量、仓库 SKU、换算系数及仓库数量，关联到对应订单。",
-    display: "分页展示订单号、店铺、业务日期、状态、仓库、商品行数、仓库换算数量和日期来源。",
-    rule: "保留日期来源供核对，首次抓取时间不能等同真实下单时间。订单列表展示订单状态，销售报表另按销售资格筛选，二者记录数量可能不同。" },
-  { view: "mappings", title: "SKU 映射",
-    source: "平台商品 SKU、仓库标准 SKU 及 XLWMS 商品配对数据。",
-    calculation: "按平台、店铺和平台 SKU 维护仓库 SKU 配对及换算系数。仓库换算数量由平台商品数量乘以对应系数得到。",
-    display: "映射状态、平台 / 店铺 SKU、仓库 SKU、换算系数和商品名称，可按状态或关键词筛选。",
-    rule: "TEMU 配对以 XLWMS 配对服务为准，修改需该服务接受后才能确认成功。推断映射与已确认映射分开统计，避免把推断当作已核实结果。" },
-  { view: "activity-prices", title: "活动价格",
-    source: "TEMU 活动报名、站点价格、活动场次、商品信息及逐次活动库存观察。",
-    calculation: "将报名、商品 SKU 与站点 / 场次组合为展示行，用本次与上次剩余库存差识别消耗或增加，再结合活动状态判断生效候选与预警。累计消耗为报名库存减当前剩余库存。",
-    display: "活动与报名状态、SKC / SKU、站点和场次、日常价 / 活动价、剩余库存、本次变化与累计消耗，支持筛选和导出。",
-    rule: "同一报名的库存可能由多个 SKU 共享，不能将共享库存重复加总。库存消耗用于活动状态判断，不直接当作订单销量或结算收入。" },
-  { view: "sku-prices", title: "SKU 价格",
-    source: "活动观察解析得到的商品价格状态，以及已保存的 SKU 价格时间区间。",
-    calculation: "按 SKU 保存当前价格、币种、价格来源、生效活动与确认 / 预警状态。价格或状态变化时关闭旧区间并开启新区间，相同状态延续当前区间。",
-    display: "当前 SKU 价格、来源、状态和生效时间，可按 SKU / SKC 或状态筛选，并导出价格快照。",
-    rule: "当前价格快照不能直接套用到历史订单。历史估价按订单时点匹配价格区间，区间外观察价标记为外推；仍需执行订单价格回填后才进入财务估算。" },
-  { view: "profit", title: "账单导入",
-    source: "指定 TEMU 店铺上传的 XLSX，或包含 XLSX 的 ZIP，支持 8 类结算与费用文件。",
-    calculation: "识别文件与工作表类型，解析业务字段并按各自业务键新增或更新；同一导入批次在事务中写入，记录成功 / 失败及新增 / 更新数量。",
-    display: "各类数据表的行数、最近导入结果和导入历史，用于检查财务报表的数据来源与更新时间。",
-    rule: "重复导入按业务键更新，不把相同结算流水重复累计。已出账与待处理独立保存，导入成功不代表历史价格回填或待结算核销已完成。" },
-];
-
-function guideReportCard(report, index) {
-  return `<details class="guide-details guide-report" data-guide-report="${report.view}" ${report.open ? "open" : ""}><summary><span class="guide-report-number">${String(index + 1).padStart(2, "0")}</span><strong>${report.title}</strong><i data-lucide="chevron-down"></i></summary><div><div class="guide-report-grid">${[["数据来源", report.source], ["聚合与计算", report.calculation], ["图表与明细", report.display], ["使用口径", report.rule]].map(([label, text]) => `<article><h3>${label}</h3><p>${text}</p></article>`).join("")}</div><div class="guide-links"><button type="button" data-open-view="${report.view}">打开${report.title} <i data-lucide="arrow-up-right"></i></button></div></div></details>`;
-}
-
-function renderSystemGuide() {
-  document.getElementById("system-guide-content").innerHTML = `
-    <div class="guide-hero"><div><span class="guide-kicker">REPORT GUIDE</span><h2>各报表的数据与计算方式</h2><p>从数据来源、聚合计算、图表明细和使用口径四个方面，说明每个页面如何构造。</p></div><button class="secondary-command" id="guide-print" type="button"><i data-lucide="printer"></i>打印说明</button></div>
-    <div class="guide-principles"><div><strong>${guideReports.length} 个页面</strong><span>逐项说明来源与构造方式</span></div><div><strong>3 类数据</strong><span>订单库存 · 财务账单 · 活动价格</span></div><div><strong>统一说明口径</strong><span>来源 · 计算 · 展示 · 使用规则</span></div></div>
-    <nav class="guide-toc" aria-label="说明目录"><a href="#guide-reports">各报表构造</a><a href="#guide-flow">数据流</a><a href="#guide-sources">账单来源</a><a href="#guide-calculation">金额计算</a><a href="#guide-settlement">待结算核对</a><a href="#guide-sync">更新规则</a></nav>
-    <section class="guide-section" id="guide-reports"><div class="guide-section-heading"><span>01</span><div><h2>各报表如何构造</h2><p>展开对应页面，查看数据从输入到展示的处理过程。</p></div></div>${guideReports.map(guideReportCard).join("")}</section>
-    <section class="guide-section" id="guide-flow"><div class="guide-section-heading"><span>02</span><div><h2>报表数据流</h2><p>订单与库存、财务账单、活动价格分别更新，再按各自口径形成报表。</p></div></div><figure class="guide-diagram"><div class="guide-flow-head"><span>数据来源</span><span>处理逻辑</span><span>报表输出</span></div>
-      <div class="guide-flow-row">${guideNode("订单与库存", "TEMU / SHEIN / XLWMS", "平台订单、仓库库存及 SKU 配对。")}${guideArrow("同步")}${guideNode("标准化", "订单与仓库 SKU", "按平台、店铺、订单去重；通过 SKU 映射和换算系数统一仓库销量。")}${guideArrow("汇总")}${guideNode("销售分析", "销售总览 · SKU · 仓库", "按业务日期和筛选条件聚合销量，与当前库存及映射状态结合。")}</div>
-      <div class="guide-flow-row">${guideNode("财务账单", "TEMU 的 8 类 Excel", "按店铺导入结算、费用和待处理文件。")}${guideArrow("导入")}${guideNode("业务键去重", "结算、费用与待处理分开", "结算按店铺＋流水 ID 更新；费用分类保存，待处理作为独立快照。")}${guideArrow("计算")}${guideNode("财务分析", "财务总览 · SKU · 待结算", "汇总结算收支和已归因商品回款，待处理金额单独展示。")}</div>
-      <div class="guide-flow-row">${guideNode("活动价格", "活动与 SKU 价格观察", "保存报名、库存变化、价格状态与时间区间。")}${guideArrow("匹配")}${guideNode("订单价格回填", "订单时点 × 商品 SKU", "按时间区间匹配单位价格，区间外观察价标记为外推。")}${guideArrow("估算")}${guideNode("辅助估算", "已定价销售额 · 覆盖率", "只计算已定价有效订单行，不外推至全部销量。")}</div><figcaption>订单、回款和费用分别使用各自业务时间；价格快照与订单价格回填也分别更新。</figcaption></figure></section>
-    <section class="guide-section" id="guide-sources"><div class="guide-section-heading"><span>03</span><div><h2>财务报表的账单来源</h2><p>各文件按店铺导入，根据业务字段进入结算、费用或待处理数据集。</p></div></div><div class="guide-filter" role="group" aria-label="按账单阶段筛选"><button class="active" aria-pressed="true" data-guide-filter="全部" type="button">全部 8 类</button><button aria-pressed="false" data-guide-filter="已出账" type="button">已出账</button><button aria-pressed="false" data-guide-filter="未出账" type="button">未出账</button><span id="guide-source-count" aria-live="polite">8 类来源</span></div><div class="guide-table-wrap"><table class="guide-table"><caption class="guide-sr-only">八类 TEMU 账单的数据来源和汇总用途</caption><thead><tr><th>阶段 / 文件</th><th>提供的数据</th><th>处理方式</th><th>汇总用途</th></tr></thead><tbody>${guideSources.map(row => `<tr data-guide-source-state="${row[0]}"><td><small>${row[0]}</small><strong>${row[1]}</strong></td><td>${row[2]}</td><td>${row[3]}</td><td>${guideBadge(row[4])}</td></tr>`).join("")}</tbody></table></div>
-      <div class="guide-note"><i data-lucide="layers"></i><div><strong>同一笔结算，只累计一次</strong><p>账务明细的结算表和 PO 明细共用结算流水，按店铺＋流水 ID 合并。PO 聚合账单用于订单与商品核对，聚合金额不再次加入结算总额。各文件覆盖范围可能不同，不能把三份金额直接相加。</p></div></div><details class="guide-details"><summary>订单与费用如何关联 <i data-lucide="chevron-down"></i></summary><div><p>订单和商品信息包括订单编号、产品 ID、店铺 / 站点、MSKU、规格及商品名称；费用信息包括费用名、业务时间、到账时间、包裹号与运单号。</p><p>订单商品行以平台、店铺和订单标识关联；带商品 SKU 外部编码的结算流水可进入 SKU 财务汇总。发货面单主要带包裹 / 运单标识，未完整关联到商品时保留在店铺费用汇总，不直接分配给某个 SKU。</p></div></details></section>
-    <section class="guide-section" id="guide-calculation"><div class="guide-section-heading"><span>04</span><div><h2>财务报表的金额计算</h2><p>选择对应口径，查看各指标的计算方式。</p></div></div><div class="guide-tabs" role="tablist" aria-label="金额口径"><button id="guide-tab-posted" role="tab" aria-selected="true" aria-controls="guide-panel-posted" tabindex="0" data-guide-tab="posted" type="button">已到账报表</button><button id="guide-tab-estimate" role="tab" aria-selected="false" aria-controls="guide-panel-estimate" tabindex="-1" data-guide-tab="estimate" type="button">活动价辅助估算</button><button id="guide-tab-pending" role="tab" aria-selected="false" aria-controls="guide-panel-pending" tabindex="-1" data-guide-tab="pending" type="button">待结算快照</button></div>
-      <div class="guide-calculation-panel" id="guide-panel-posted" role="tabpanel" aria-labelledby="guide-tab-posted" tabindex="0"><div class="guide-formula"><span>结算回款净额</span><strong>销售回款 ＋ 运费回款 − 销售冲回绝对值 − 运费冲回绝对值</strong></div><div class="guide-formula featured"><span>平台收支净额</span><strong>结算回款净额 ＋ 已导入的平台费用收支</strong><small>支出按负数相加，补偿保留账单方向；内部成本未扣除。</small></div><div class="guide-example"><span>计算示例 · 非真实订单</span><p>销售 100 ＋ 运费 20 − 销售冲回 5 − 运费冲回 1 ＝ 净结算 114；面单 −30、违规 −2、补偿 ＋3，平台收支净额为 <strong>85</strong>。缺少内部成本时不输出毛利。</p></div></div>
-      <div class="guide-calculation-panel" id="guide-panel-estimate" role="tabpanel" aria-labelledby="guide-tab-estimate" tabindex="0" hidden><div class="guide-formula featured"><span>已定价订单行的估算销售额</span><strong>Σ（有效销量订单行数量 × 匹配的单位价格）</strong></div><div class="guide-formula"><span>价格覆盖率</span><strong>已定价有效订单行 ÷ 全部有效订单行 × 100%</strong></div><p>取消或不符合销售资格的订单排除。按订单时点匹配价格区间；区间外观察价标记为外推。缺价格的订单行留空，不当作零销售额，也不把已定价样本外推至全部订单。</p><p>订单日期来源与匹配质量会影响估算可靠性；首次抓取时间不等同真实成交时点。价格采集和订单价格回填分别更新，估算只使用已经写入订单行的匹配结果。</p></div>
-      <div class="guide-calculation-panel" id="guide-panel-pending" role="tabpanel" aria-labelledby="guide-tab-pending" tabindex="0" hidden><div class="guide-formula featured"><span>快照净待回款</span><strong>销售待回款 ＋ 运费待回款 − 两类冲回绝对值</strong></div><p>待出账面单与待回款来自不同快照，未逐订单对齐，不能将两份总额直接相减为利润。</p><p>遇到非零“已减优惠”回款列时暂停净待回款合计，待确认其是否替代原回款或表示独立交易后再计算。与已到账记录重叠的 PO 单列提醒，不自动扣除。</p></div>
-      <div class="guide-rule-grid"><article><i data-lucide="calendar-days"></i><h3>时间</h3><p>上海时区。销量按标准订单日期，结算按到账时间，费用按记账时间。财务总览先筛日期，再按日 / 周 / 月分桶。</p></article><article><i data-lucide="circle-dollar-sign"></i><h3>币种与缺失</h3><p>金额合计以 USD 为口径，出现其他或未知币种时暂停合计。缺账单、缺价格、未接入成本留空，已知零金额才显示 0。</p></article><article><i data-lucide="package-search"></i><h3>商品与退款</h3><p>取消订单、销售冲回、运费冲回及拒付分别计数，不合并为退款件数。商品汇总只包含可关联的结算，不替代完整订单利润。</p></article></div>
-      <details class="guide-details"><summary>平台收入与支出的完整来源表 <i data-lucide="chevron-down"></i></summary><div class="guide-table-wrap"><table class="guide-table guide-amount-table"><caption class="guide-sr-only">平台收入和支出来源及计算方向</caption><thead><tr><th>项目</th><th>数据来源</th><th>方向</th><th>状态 / 计算规则</th></tr></thead><tbody>${guideAmounts.map(row => `<tr><td><strong>${row[0]}</strong></td><td>${row[1]}</td><td>${row[2]}</td><td>${guideBadge(row[3])}<p>${row[4]}</p></td></tr>`).join("")}</tbody></table></div></details></section>
-    <section class="guide-section" id="guide-settlement"><div class="guide-section-heading"><span>05</span><div><h2>待结算报表如何核对重叠</h2><p>保留快照的原始待处理金额，把需要核对的已到账重叠单列展示。</p></div></div><figure class="guide-settlement-flow">${guideNode("输入", "① 待处理快照", "分别读取待回款与待出账面单。")}${guideArrow("关联")}${guideNode("核对键", "② 同店铺标识", "订单用 PO；面单用包裹、运单、账单类型和备注。")}${guideArrow("比对")}${guideNode("识别重叠", "③ 查询已到账", "查找结算流水 / 聚合 PO 或已出账面单中的对应记录。")}${guideArrow("汇总")}${guideNode("输出", "④ 展示核对项", "按店铺和币种列出重叠数量及原始待处理金额。")}<figcaption>PO 重叠不证明已经全部结清。报表只提示核对，不自动核销，避免误删仍待结算的部分。</figcaption></figure><div class="guide-note"><i data-lucide="scan-line"></i><div><strong>重复导入的更新方式</strong><p>相同业务键的记录在重复导入时更新；面单业务键包含出账状态，因此待出账与已出账不会互相覆盖。导入已到账流水也不会自动删除待处理 PO。</p></div></div></section>
-    <section class="guide-section" id="guide-sync"><div class="guide-section-heading"><span>06</span><div><h2>各报表的更新规则</h2><p>分别查看订单库存、账单导入、价格覆盖与待结算核对的数据状态。</p></div><button class="secondary-command" id="guide-refresh" type="button"><i data-lucide="refresh-cw"></i>刷新状态</button></div><div id="guide-live-status" class="guide-live-grid" aria-live="polite"><p>正在读取数据状态…</p></div><div class="guide-rule-grid"><article><i data-lucide="refresh-cw"></i><h3>销售与库存页面</h3><p>立即同步读取订单、库存和配对数据。各步骤独立写入，库存写入失败时保留上次成功快照，订单可能仍有更新。报表刷新读取当前已保存数据。</p></article><article><i data-lucide="file-input"></i><h3>财务页面</h3><p>上传账单后更新对应数据集，再重新汇总财务报表。立即同步不会补充未上传的结算或费用账单，待处理报表以最近导入的快照为准。</p></article><article><i data-lucide="badge-dollar-sign"></i><h3>价格与估算</h3><p>活动采集更新活动和当前价格状态；历史价格区间供订单回填使用。财务估算在回填结果写入订单后更新，覆盖率反映已匹配订单行的占比。</p></article></div></section>
-    <footer class="guide-footer">报表说明 · 上海时区 · 金额与数量以各报表的来源、筛选条件和计算口径为准。上方数据状态从系统接口读取。</footer>`;
-}
-
-
-function bindSystemGuide() {
-  renderSystemGuide();
-  const root = document.getElementById("system-guide-content");
-  root.querySelectorAll("[data-open-view]").forEach(button => button.addEventListener("click", () => switchView(button.dataset.openView)));
-  root.querySelectorAll("[data-guide-filter]").forEach(button => button.addEventListener("click", () => {
-    root.querySelectorAll("[data-guide-filter]").forEach(item => {
-      item.classList.toggle("active", item === button);
-      item.setAttribute("aria-pressed", String(item === button));
-    });
-    let visible = 0;
-    root.querySelectorAll("[data-guide-source-state]").forEach(row => {
-      row.hidden = button.dataset.guideFilter !== "全部" && row.dataset.guideSourceState !== button.dataset.guideFilter;
-      if (!row.hidden) visible++;
-    });
-    document.getElementById("guide-source-count").textContent = `${visible} 类来源`;
-  }));
-  const tabs = [...root.querySelectorAll("[data-guide-tab]")];
-  function selectTab(tab) {
-    tabs.forEach(item => {
-      const selected = item === tab;
-      item.setAttribute("aria-selected", String(selected));
-      item.tabIndex = selected ? 0 : -1;
-      document.getElementById(item.getAttribute("aria-controls")).hidden = !selected;
-    });
-  }
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => selectTab(tab));
-    tab.addEventListener("keydown", event => {
-      let index = tabs.indexOf(tab);
-      if (event.key === "ArrowRight") index = (index + 1) % tabs.length;
-      else if (event.key === "ArrowLeft") index = (index + tabs.length - 1) % tabs.length;
-      else if (event.key === "Home") index = 0;
-      else if (event.key === "End") index = tabs.length - 1;
-      else return;
-      event.preventDefault(); selectTab(tabs[index]); tabs[index].focus();
-    });
-  });
-  document.getElementById("guide-print").addEventListener("click", () => window.print());
-  let detailsBeforePrint = null;
-  window.addEventListener("beforeprint", () => {
-    if (state.view !== "system-guide" || detailsBeforePrint) return;
-    detailsBeforePrint = [...root.querySelectorAll("details")].map(item => [item, item.open]);
-    detailsBeforePrint.forEach(([item]) => { item.open = true; });
-  });
-  window.addEventListener("afterprint", () => {
-    detailsBeforePrint?.forEach(([item, open]) => { item.open = open; });
-    detailsBeforePrint = null;
-  });
-  document.getElementById("guide-refresh").addEventListener("click", loadSystemGuideStatus);
-  const status = document.getElementById("source-status");
-  const openSyncGuide = async () => {
-    const url = new URL(window.location.href);
-    url.hash = "guide-sync";
-    window.history.replaceState({}, "", url);
-    await switchView("system-guide");
-  };
-  status.addEventListener("click", openSyncGuide);
-  status.addEventListener("keydown", event => {
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openSyncGuide(); }
-  });
-  window.addEventListener("hashchange", () => {
-    if (state.view === "system-guide") scrollToSystemGuideSection(window.location.hash);
-  });
-  lucide.createIcons();
-}
-
-function scrollToSystemGuideSection(hash) {
-  const section = document.getElementById(String(hash).replace(/^#/, ""));
-  if (section?.classList.contains("guide-section")) section.scrollIntoView({ block: "start" });
-}
-
+const guideModel = () => reportModels.find(model => model.id === systemGuideState.model);
+const guideNumber = value => value == null ? "—" : formatNumber(value);
+const guidePrice = (value, currency) => {
+  if (value == null) return "—";
+  if (!currency) return `${(Number(value) / 100).toFixed(2)}（币种未提供）`;
+  try { return new Intl.NumberFormat("en-US", { style: "currency", currency: currency || "USD" }).format(Number(value) / 100); }
+  catch (_) { return `${(Number(value) / 100).toFixed(2)} ${currency || ""}`; }
+};
 function guideTime(value) {
-  if (!value || !Number.isFinite(new Date(value).getTime())) return "未有记录";
+  if (!value || !Number.isFinite(new Date(value).getTime())) return "暂无记录";
   return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
-
+function bindSystemGuide() {
+  document.getElementById("system-guide-content").innerHTML = `
+    <div class="report-workbench">
+      <div class="report-guide-intro"><div><span class="report-eyebrow">REPORT BUILDER</span><h2>看懂每一张报表</h2><p>从数据来源到计算结果，点击图中的节点查看字段。</p></div><button id="guide-print" type="button" class="secondary-command"><i data-lucide="printer"></i>打印报表说明</button></div>
+      <div class="report-controls"><div class="report-model-tabs" role="group" aria-label="财务报表构造">${reportModels.slice(0, 3).map(model => `<button type="button" data-guide-model="${model.id}"><i data-lucide="${model.icon}"></i>${model.name}</button>`).join("")}</div><label class="report-select"><span>所有报表</span><select id="guide-model-select">${reportModels.map(model => `<option value="${model.id}">${model.name}</option>`).join("")}</select></label><label class="report-select" id="guide-shop-control"><span>店铺</span><select id="guide-shop"><option value="">全部 TEMU 店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label></div>
+      <article class="panel report-flow-panel"><div class="panel-heading"><div><h2 id="guide-model-title"></h2><span>数据输入 → 关联汇总 → 计算 → 报表</span></div><button class="text-command" id="guide-open-report" type="button">打开报表 <i data-lucide="arrow-up-right"></i></button></div><div id="guide-flow-diagram" class="model-flow"></div><div id="guide-node-detail" class="flow-node-detail" aria-live="polite"></div><div id="guide-model-note" class="report-scope"></div></article>
+      <article class="panel report-preview-panel"><div class="panel-heading"><div><h2>实际报表预览</h2><span id="guide-preview-range">读取已保存数据</span></div><button id="guide-refresh" type="button" class="secondary-command"><i data-lucide="refresh-cw"></i>刷新</button></div><div id="guide-preview" aria-live="polite"></div></article>
+      <section id="guide-sync" class="report-update-section"><div class="report-update-heading"><h3>数据如何更新</h3><span id="guide-status-updated"></span></div><div id="guide-live-status" class="report-update-grid"></div></section>
+    </div>`;
+  const root = document.getElementById("system-guide-content");
+  root.addEventListener("click", event => {
+    const tab = event.target.closest("[data-guide-model]"), node = event.target.closest("[data-guide-node]");
+    if (tab) selectGuideModel(tab.dataset.guideModel);
+    if (node) selectGuideNode(node.dataset.guideNode);
+  });
+  root.addEventListener("keydown", event => { const node = event.target.closest("[data-guide-node]"); if (node && ["Enter", " "].includes(event.key)) { event.preventDefault(); selectGuideNode(node.dataset.guideNode); } });
+  document.getElementById("guide-model-select").addEventListener("change", event => selectGuideModel(event.target.value));
+  document.getElementById("guide-shop").addEventListener("change", event => { systemGuideState.shop = event.target.value; loadSystemGuideStatus(); });
+  document.getElementById("guide-refresh").addEventListener("click", loadSystemGuideStatus);
+  document.getElementById("guide-open-report").addEventListener("click", () => switchView(systemGuideState.model));
+  document.getElementById("guide-print").addEventListener("click", () => window.print());
+  const source = document.getElementById("source-status");
+  source.setAttribute("role", "button"); source.setAttribute("tabindex", "0"); source.setAttribute("aria-label", "查看数据更新状态");
+  const openStatus = async () => { await switchView("system-guide"); const url = new URL(location.href); url.hash = "guide-sync"; history.replaceState(null, "", url); scrollToSystemGuideSection(url.hash); };
+  source.addEventListener("click", openStatus);
+  source.addEventListener("keydown", event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); openStatus(); } });
+  window.addEventListener("hashchange", () => { if (state.view === "system-guide") scrollToSystemGuideSection(location.hash); });
+  renderGuideModel();
+}
+function selectGuideModel(id) {
+  systemGuideState.model = id; systemGuideState.selected = "calculate";
+  renderGuideModel(); loadSystemGuideStatus();
+}
+function renderGuideModel() {
+  const model = guideModel();
+  document.getElementById("guide-model-select").value = model.id;
+  document.querySelectorAll("[data-guide-model]").forEach(button => { const active = button.dataset.guideModel === model.id; button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); });
+  document.getElementById("guide-shop-control").hidden = !model.id.startsWith("profit-");
+  setText("guide-model-title", `${model.name} · 构造示意图`);
+  setText("guide-model-note", model.note);
+  const nodes = model.sources.map((source, i) => ({ id: `source-${i}`, title: source[0], lines: [source[1]], tag: "数据来源" })).concat([
+    { id: "group", title: model.group[0], lines: model.group.slice(1), tag: "01 / 汇总" },
+    { id: "calculate", title: model.calculate[0], lines: model.calculate.slice(1), tag: "02 / 计算" },
+    { id: "output", title: model.output[0], lines: model.output.slice(1), tag: "03 / 输出" },
+  ]);
+  const nodeSVG = (node, x, y, w, h, mobile) => `<g class="flow-node ${node.id === "output" ? "output" : ""}" data-guide-node="${node.id}" role="button" tabindex="0" aria-label="${escapeHtml(node.title)}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="13"/><text class="flow-tag" x="${x + 18}" y="${y + 23}">${node.tag}</text><text class="flow-title" x="${x + 18}" y="${y + 47}">${escapeHtml(node.title)}</text>${node.lines.map((line, i) => `<text class="flow-description" x="${x + 18}" y="${y + 69 + i * 21}">${escapeHtml(line)}</text>`).join("")}</g>`;
+  const markers = suffix => `<defs><marker id="flow-arrow-${suffix}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#c7d2fe"/></marker></defs>`;
+  const desktopPaths = ["M250 68 H278 V167 H310", "M250 167 H310", "M250 266 H278 V167 H310", "M550 167 H594", "M834 167 H878"];
+  document.getElementById("guide-flow-diagram").innerHTML = `<svg class="flow-desktop" viewBox="0 0 1140 335" role="group" aria-label="${escapeHtml(model.name)}数据流图">${markers("d")}${desktopPaths.map(d => `<path class="flow-connector" d="${d}" marker-end="url(#flow-arrow-d)"/>`).join("")}${nodes.map((node, i) => i < 3 ? nodeSVG(node, 10, 21 + i * 99, 240, 94) : nodeSVG(node, [310, 594, 878][i - 3], 107, 240, 120)).join("")}</svg>
+    <svg class="flow-mobile" viewBox="0 0 350 707" role="group" aria-label="${escapeHtml(model.name)}数据流图">${markers("m")}${["M310 57 H330 V325 H175 V341", "M310 161 H330", "M310 265 H330", "M175 461 V485", "M175 605 V629"].map(d => `<path class="flow-connector" d="${d}" marker-end="url(#flow-arrow-m)"/>`).join("")}${nodes.map((node, i) => nodeSVG(node, 10, [10, 114, 218, 341, 485, 629][i], i < 3 ? 300 : 330, i < 3 ? 94 : 120)).join("")}</svg>`;
+  // The portrait diagram keeps full text visible while fitting a phone screen.
+  document.querySelector(".flow-mobile").setAttribute("viewBox", "0 0 350 759");
+  selectGuideNode(systemGuideState.selected);
+  lucide.createIcons();
+}
+function selectGuideNode(id) {
+  systemGuideState.selected = id;
+  document.querySelectorAll("[data-guide-node]").forEach(node => { const active = node.dataset.guideNode === id; node.classList.toggle("selected", active); node.setAttribute("aria-pressed", String(active)); });
+  const model = guideModel(), sourceIndex = Number(id.split("-")[1]), source = id.startsWith("source-") ? model.sources[sourceIndex] : null;
+  let title, fields;
+  if (source) { title = source[0]; fields = source[2].split(" · "); }
+  else { const item = model[id]; title = item[0]; fields = item.slice(1); }
+  let meta = "";
+  if (source && systemGuideState.status) {
+    const sourceRows = systemGuideState.status.sources.filter(row => source[3] === "fees" ? !["settled", "unsettled", "shipping_pending"].includes(row.source) : row.source === source[3]);
+    if (sourceRows.length) meta = `<span class="flow-source-meta">${formatNumber(financeN(sourceRows, "rows"))} 条记录 · 最近导入 ${guideTime(sourceRows.map(row => row.imported_at).filter(Boolean).sort().at(-1))}</span>`;
+  }
+  document.getElementById("guide-node-detail").innerHTML = `<span class="flow-detail-label"><i data-lucide="mouse-pointer-2"></i>${escapeHtml(title)}</span><div>${fields.map(field => `<span class="field-chip">${escapeHtml(field)}</span>`).join("")}</div>${meta}`;
+  lucide.createIcons();
+}
+function scrollToSystemGuideSection(hash) {
+  const section = document.getElementById(String(hash).replace(/^#/, ""));
+  if (section && document.getElementById("system-guide-content").contains(section)) section.scrollIntoView({ block: "start" });
+}
+function guideTable(headers, rows, footer = "") {
+  return `<div class="report-preview-table"><table><thead><tr>${headers.map((label, i) => `<th${i ? ' class="num"' : ""}>${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map((value, i) => `<td${i ? ' class="num"' : ""}>${escapeHtml(String(value ?? "—"))}</td>`).join("")}</tr>`).join("") || emptyRow(headers.length, "暂无对应数据")}</tbody></table></div>${footer ? `<div class="report-preview-foot">${escapeHtml(footer)}</div>` : ""}`;
+}
+function guideChartShell(title, table, extra = "") {
+  return `<div class="report-preview-grid"><div class="report-preview-visual"><h3>${escapeHtml(title)}</h3><div class="report-preview-chart"><canvas id="guide-report-chart" role="img" aria-label="${escapeHtml(title)}"></canvas></div>${extra}</div><div>${table}</div></div>`;
+}
 async function loadSystemGuideStatus() {
   systemGuideState.controller?.abort();
-  const controller = new AbortController();
-  systemGuideState.controller = controller;
-  const button = document.getElementById("guide-refresh"), root = document.getElementById("guide-live-status");
-  button.disabled = true;
-  root.innerHTML = '<p class="guide-live-message">正在读取数据状态…</p>';
+  const controller = new AbortController(); systemGuideState.controller = controller;
+  const model = guideModel(), shop = systemGuideState.shop, signal = controller.signal;
+  const button = document.getElementById("guide-refresh"), preview = document.getElementById("guide-preview");
+  button.disabled = true; preview.setAttribute("aria-busy", "true");
+  destroyChart("financeGuide"); preview.innerHTML = '<div class="report-preview-message">正在读取实际报表…</div>';
+  systemGuideState.status = null; selectGuideNode(systemGuideState.selected); document.getElementById("guide-live-status").innerHTML = '<div class="report-update-empty">正在读取更新状态…</div>'; setText("guide-status-updated", "");
   try {
-    const response = await api("/api/profit/report-status", { signal: controller.signal });
-    const data = response.data, sync = data.sync || {};
-    const sources = data.sources || [], coverage = data.coverage || [], pending = data.pending || [];
-    const imported = sources.map(row => row.imported_at).filter(Boolean).sort().at(-1);
-    const settled = sources.filter(row => row.source === "settled").map(row => row.last_at).filter(Boolean).sort().at(-1);
-    const lines = coverage.reduce((sum, row) => sum + Number(row.lines || 0), 0);
-    const priced = coverage.reduce((sum, row) => sum + Number(row.priced_lines || 0), 0);
-    const warning = coverage.reduce((sum, row) => sum + Number(row.warning_lines || 0), 0);
-    const overlaps = pending.reduce((sum, row) => sum + Number(row.overlap_orders || 0), 0);
-    const inventoryFailure = sync.status === "failed" && sync.error?.includes("warehouse_inventory_pkey");
-    const syncTitle = inventoryFailure ? "库存同步失败" : ({ succeeded: "最近同步成功", failed: "本轮有步骤失败", running: "正在同步" }[sync.status] || "暂无同步记录");
-    const card = (label, value, detail, kind = "") => `<article class="guide-live-card ${kind}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><p>${escapeHtml(detail)}</p></article>`;
-    root.innerHTML = card("订单与库存同步", syncTitle, `${guideTime(sync.completed_at || sync.started_at)}；本轮同步订单 ${formatNumber(sync.orders_synced || 0)}，商品行 ${formatNumber(sync.lines_synced || 0)}，库存行 ${formatNumber(sync.inventory_synced || 0)}。`, sync.status === "failed" ? "warning" : "")
-      + card("财务账单", imported ? "最近导入 " + guideTime(imported) : "尚未导入", `结算到账时间截至 ${guideTime(settled)}；账单由 Excel 导入更新，立即同步不会补充账单。`)
-      + card("订单价格", lines ? `${(priced / lines * 100).toFixed(2)}% 覆盖` : "暂无有效订单行", `已定价 ${formatNumber(priced)} / ${formatNumber(lines)} 行；其中 ${formatNumber(warning)} 行有价格匹配警告。`, warning || (lines && !priced) ? "warning" : "")
-      + card("待结算检查", `${formatNumber(overlaps)} 个重叠 PO`, "与已到账记录同时存在的待处理订单；仅提示核对，未自动核销。", overlaps ? "warning" : "");
+    const params = new URLSearchParams({ shop_key: shop, period: "day" });
+    const statusPromise = api(`/api/profit/report-status?${params}`, { signal }).then(response => { if (systemGuideState.controller === controller) { systemGuideState.status = response.data; renderGuideStatus(response.data); selectGuideNode(systemGuideState.selected); } return response.data; });
+    let data, status;
+    if (model.id.startsWith("profit-")) {
+      const path = model.id === "profit-unsettled" ? `/api/profit/unsettled-summary?${params}` : `/api/profit/daily-summary?${params}`;
+      [data, status] = await Promise.all([api(path, { signal }).then(response => response.data), statusPromise]);
+      if (model.id === "profit-sku") { const skuParams = new URLSearchParams({ shop_key: shop, start: data.range.start, end: data.range.end }); data = (await api(`/api/profit/sku-summary?${skuParams}`, { signal })).data; }
+    } else {
+      const paths = { mappings: "/api/mappings?page=1&page_size=6", orders: "/api/orders?page=1&page_size=6", "activity-prices": "/api/marketing/activity-snapshot?page=1&page_size=6", "sku-prices": "/api/marketing/sku-price-snapshot?page=1&page_size=6", profit: "/api/profit/summary" };
+      [data, status] = await Promise.all([api(paths[model.id] || "/api/dashboard?period=week", { signal }), statusPromise]);
+    }
+    if (systemGuideState.controller !== controller) return;
+    renderGuidePreview(model.id, data, status);
   } catch (error) {
-    if (error.name !== "AbortError") root.innerHTML = '<p class="guide-live-message error">状态读取失败，请点击“刷新状态”重试。下方说明仍可阅读。</p>';
+    if (error.name !== "AbortError" && systemGuideState.controller === controller) { destroyChart("financeGuide"); preview.innerHTML = '<div class="report-preview-message error">实际报表读取失败，请点击刷新重试。</div>'; setText("guide-preview-range", "本次数据未取得"); if (!systemGuideState.status) document.getElementById("guide-live-status").innerHTML = '<div class="report-update-empty">更新状态暂不可用</div>'; }
   } finally {
-    if (systemGuideState.controller === controller) button.disabled = false;
+    if (systemGuideState.controller === controller) { button.disabled = false; preview.removeAttribute("aria-busy"); }
+    lucide.createIcons();
   }
+}
+function renderGuideStatus(data) {
+  const sync = data.sync || {}, imported = data.sources.map(row => row.imported_at).filter(Boolean).sort().at(-1), last = data.sources.filter(row => row.source === "settled").map(row => row.last_at).filter(Boolean).sort().at(-1);
+  const card = (icon, title, value, detail) => `<article><i data-lucide="${icon}"></i><div><span>${escapeHtml(title)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></div></article>`;
+  const failure = sync.status === "failed";
+  document.getElementById("guide-live-status").innerHTML = card("refresh-cw", "订单与库存", failure ? "本轮同步有失败" : ({ succeeded: "最近同步成功", running: "正在同步" }[sync.status] || "暂无同步记录"), failure && sync.error?.includes("warehouse_inventory_pkey") ? "库存存在重复仓库 / SKU，保留上次成功快照" : `订单 ${formatNumber(sync.orders_synced || 0)} · 库存 ${formatNumber(sync.inventory_synced || 0)} 行`)
+    + card("file-input", "财务账单", imported ? `最近导入 ${financeDate(imported)}` : "尚未导入", last ? `结算到账截至 ${financeDate(last)} · 上传后更新` : "通过账单上传更新")
+    + card("tags", "订单定价", `${formatNumber(financeN(data.coverage || [], "priced_lines"))} 个已定价行`, "活动采集 → 历史价格 → 订单回填");
+  setText("guide-status-updated", `读取于 ${guideTime(data.generated_at)}`);
+}
+function renderGuidePreview(id, response, status) {
+  const preview = document.getElementById("guide-preview"), ok = financeCurrencyOK(status);
+  const money = (value, available = true) => financeMoney(ok && available ? value : null);
+  if (id === "profit-summary") {
+    const rows = FinanceCore.groupDaily(response.rows, "month", response.range.start, response.range.end), totals = FinanceCore.sumRows(rows), available = ok && FinanceCore.hasLedger(totals);
+    const table = guideTable(["期间", "净结算", "费用收支", "收支净额"], rows.map(row => [row.label, money(row.payback_amount, row.settled_rows > 0), money(row.known_fee_balance_amount, row.fee_rows > 0), money(row.platform_balance_amount, FinanceCore.hasLedger(row))]).concat([["合计", money(totals.payback_amount, totals.settled_rows > 0), money(totals.known_fee_balance_amount, totals.fee_rows > 0), money(totals.platform_balance_amount, available)]]), "账单金额按到账 / 记账日期汇总，缺少账单的月份保留空白。");
+    preview.innerHTML = guideChartShell("回款到收支净额", table, `<div class="report-result"><span>收支净额</span><strong>${money(totals.platform_balance_amount, available)}</strong><small>未扣内部成本</small></div>`);
+    financeWaterfall("guide-report-chart", "financeGuide", totals, available);
+    setText("guide-preview-range", `${response.range.start} — ${response.range.end} · USD · 按月汇总`);
+  } else if (id === "profit-sku") {
+    const rows = response.rows.slice().sort((a, b) => b.sales_receipt_amount - a.sales_receipt_amount).slice(0, 6);
+    preview.innerHTML = guideChartShell("销售回款排行", guideTable(["SKU", "销量", "销售回款", "归因净额"], rows.map(row => [row.platform_sku, guideNumber(row.units), money(row.sales_receipt_amount, row.settled_rows > 0), money(row.payback_amount, row.settled_rows > 0)]), "展示销售回款最高的 6 个商品；净额仅含已归因结算。"));
+    guideBar(rows.map(row => row.platform_sku), ok ? rows.map(row => row.settled_rows ? row.sales_receipt_amount : null) : [], "销售回款", true, true);
+    setText("guide-preview-range", `${response.range.start} — ${response.range.end} · ${response.rows.length} 个 SKU`);
+  } else if (id === "profit-unsettled") {
+    const checks = status.pending || [], count = financeN(checks, "orders"), discount = financeN(checks, "discounted_rows"), overlap = financeN(checks, "overlap_orders");
+    const labels = ["销售回款", "运费回款", "销售冲回", "运费冲回"], values = [financeN(response.shops, "sales_receipt"), financeN(response.shops, "freight_receipt"), -Math.abs(financeN(response.shops, "sales_chargeback")), -Math.abs(financeN(response.shops, "freight_chargeback"))];
+    const table = guideTable(["构成", "快照金额"], labels.map((label, i) => [label, money(values[i], count > 0)]).concat([["净待回款", money(financeN(checks, "net_amount"), count > 0 && !discount)], ["重叠待回款", money(financeN(checks, "overlap_net_amount"), overlap > 0 && !discount)]]), `${formatNumber(count)} 个待处理 PO · ${formatNumber(overlap)} 个与已到账重叠，未自动核销。`);
+    preview.innerHTML = guideChartShell("待回款构成", table);
+    guideBar(labels, ok && count ? values : [], "快照金额", false, true);
+    setText("guide-preview-range", "最近导入的待处理快照 · USD");
+  } else {
+    const data = response.data; let headers, rows, labels, values, title, foot = "", currency = false;
+    if (["overview", "skus", "warehouses"].includes(id)) {
+      setText("guide-preview-range", `${data.range.start} — ${data.range.end} · 当前保存数据`);
+      if (id === "overview") { const series = data.series.slice(-6); headers = ["期间", "订单", "平台销量", "仓库销量"]; rows = series.map(row => [row.label, guideNumber(row.orders), guideNumber(row.platform_units), guideNumber(row.warehouse_units)]); labels = series.map(row => row.label); values = series.map(row => row.warehouse_units); title = "每周仓库销量"; }
+      if (id === "skus") { const items = data.skus.slice(0, 6); headers = ["仓库 SKU", "销量", "库存", "可售天数"]; rows = items.map(row => [row.warehouse_sku, guideNumber(row.warehouse_units), guideNumber(row.available_stock), guideNumber(row.days_of_cover)]); labels = items.map(row => row.warehouse_sku); values = items.map(row => row.warehouse_units); title = "商品销量"; }
+      if (id === "warehouses") { headers = ["仓库", "库存", "本期销量", "活跃 SKU"]; rows = data.warehouses.map(row => [row.name || row.code, guideNumber(row.available_stock), guideNumber(row.warehouse_units), guideNumber(row.active_sku_count)]); labels = data.warehouses.map(row => row.code); values = data.warehouses.map(row => row.available_stock); title = "仓库可用库存"; }
+    } else {
+      setText("guide-preview-range", "当前保存快照 · 前 6 条记录");
+      if (id === "mappings") { headers = ["平台 SKU", "仓库 SKU", "换算系数", "来源"]; rows = data.items.map(row => [row.platform_sku, row.warehouse_sku || "未配对", guideNumber(row.conversion_factor), row.mapping_source]); foot = `共 ${formatNumber(data.total)} 条映射`; }
+      if (id === "orders") { headers = ["订单号", "店铺", "状态", "商品行"]; rows = data.items.map(row => [row.order_no, financeShopName(row.shop_key), row.normalized_status, guideNumber(row.lines.length)]); foot = `共 ${formatNumber(data.total)} 个标准订单`; }
+      if (id === "activity-prices") { headers = ["SKU", "站点", "活动价", "剩余库存"]; rows = data.map(row => [row.sku_id, row.site_name, guidePrice(row.site_activity_price, row.currency), guideNumber(row.remaining_activity_stock)]); foot = "活动价按各行币种展示；当前快照不等于历史订单价格。"; }
+      if (id === "sku-prices") { headers = ["SKU", "当前价格", "价格来源", "更新时间"]; rows = data.map(row => [row.sku_id, guidePrice(row.price, row.currency), row.price_source, guideTime(row.update_at)]); foot = "原始价格以分保存，展示时除以 100。"; }
+      if (id === "profit") { headers = ["数据集", "保存行数"]; rows = data.tables.map(row => [row.label, guideNumber(row.rows)]); labels = data.tables.map(row => row.label); values = data.tables.map(row => row.rows); title = "账单数据集"; foot = data.latest_import ? `最近任务：${guideTime(data.latest_import.completed_at)} · ${formatNumber(data.latest_import.rows_upserted)} 行写入` : "暂无导入任务"; setText("guide-preview-range", "当前已保存的财务数据集"); }
+    }
+    const table = guideTable(headers, rows, foot);
+    if (labels) { preview.innerHTML = guideChartShell(title, table); guideBar(labels, values, title, true, currency); }
+    else preview.innerHTML = table;
+  }
+  if (!ok && id.startsWith("profit-")) { const message = document.createElement("div"); message.className = "report-preview-foot"; message.textContent = "账单含其他或未知币种，暂停 USD 合计。"; preview.prepend(message); }
+}
+function guideBar(labels, values, title, horizontal = false, money = false) {
+  financeChart("financeGuide", "guide-report-chart", { type: "bar", data: { labels, datasets: [{ label: title, data: values, backgroundColor: values.map((value, i) => value < 0 ? "#fb923c" : financeColors[i % financeColors.length]), borderRadius: 5, maxBarThickness: 28 }] }, options: financeChartOptions({ indexAxis: horizontal ? "y" : "x", plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => money ? financeMoney(item.raw) : guideNumber(item.raw) } } } }) });
 }

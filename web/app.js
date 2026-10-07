@@ -1,7 +1,7 @@
 const APP_BASE = new URL(".", document.currentScript.src).pathname.replace(/\/$/, "");
 
 const state = {
-  view: "overview",
+  view: "profit-summary",
   period: "day",
   platform: "",
   shop: "",
@@ -29,19 +29,17 @@ const viewMeta = {
   "activity-prices": ["活动价格", "TEMU 当前报名活动生效结果"],
   "sku-prices": ["SKU 价格", "TEMU 分钟价格解析结果"],
   profit: ["账单导入", "TEMU 财务数据来源与导入记录"],
-  "profit-summary": ["财务总览", "TEMU · 回款、费用与估算覆盖"],
-  "profit-sku": ["SKU 财务分析", "商品销售回款与价格估算覆盖"],
+  "profit-summary": ["财务总览", "TEMU · 回款、费用与收支明细"],
+  "profit-sku": ["商品回款", "商品回款排行、分布与明细"],
   "profit-unsettled": ["待结算检查", "待回款、面单费与已结算重叠检查"],
-  "system-guide": ["系统说明", "各报表的数据来源、聚合方式与展示规则"],
+  "system-guide": ["报表说明", "数据流 · 计算示意 · 实际报表"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
   lucide.createIcons();
   bindEvents();
   const requestedView = new URLSearchParams(window.location.search).get("view");
-  await loadWarehouses();
-  await loadDashboard();
-  if (requestedView && viewMeta[requestedView]) await switchView(requestedView);
+  await Promise.all([loadWarehouses(), loadDashboard(), switchView(requestedView && viewMeta[requestedView] ? requestedView : "profit-summary")]);
 });
 
 function bindEvents() {
@@ -95,9 +93,10 @@ async function switchView(view) {
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
   const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled", "system-guide"];
   document.getElementById("global-filters").hidden = customFilterViews.includes(view);
+  updateTopbarForView();
   if (view === "mappings") await loadMappings();
   if (view === "orders") await loadOrders();
-  if (view === "warehouses") renderWarehouseChart();
+  if (view === "warehouses" && state.dashboard) renderWarehouseChart();
   if (view === "activity-prices" && !state.activity.loaded) await loadActivityPrices();
   if (view === "sku-prices" && !state.skuPrices.loaded) await loadSKUPrices();
   if (view === "profit") await loadProfitSummary();
@@ -105,6 +104,7 @@ async function switchView(view) {
   if (view === "profit-sku" && !state.profitSKU.loaded) await loadProfitSKUSummary();
   if (view === "profit-unsettled" && !state.profitUnsettled.loaded) await loadProfitUnsettledSummary();
   if (view === "system-guide") await loadSystemGuideStatus();
+  if (state.view !== view) return;
   updateTopbarForView();
   Object.entries(state.charts).filter(([key]) => key.startsWith("finance")).forEach(([, chart]) => chart.resize());
 
@@ -112,8 +112,7 @@ async function switchView(view) {
   if (activeNavigation && window.innerWidth <= 820) activeNavigation.scrollIntoView({ block: "nearest", inline: "nearest" });
 
   const url = new URL(window.location.href);
-  if (customFilterViews.includes(view)) url.searchParams.set("view", view);
-  else url.searchParams.delete("view");
+  url.searchParams.set("view", view);
   if (view !== "system-guide" && url.hash.startsWith("#guide-")) url.hash = "";
   window.history.replaceState({}, "", url);
   if (view === "system-guide") scrollToSystemGuideSection(window.location.hash);
@@ -488,9 +487,9 @@ function updateTopbarForView() {
   } else if (state.view === "sku-prices") {
     setText("updated-at", `价格快照 ${formatDateTime(state.skuPrices.items[0]?.update_at)}`);
   } else if (state.view === "profit") {
-    setText("updated-at", `利润导入 ${formatDateTime(state.profit.summary?.latest_import?.completed_at || state.profit.summary?.latest_import?.started_at)}`);
+    setText("updated-at", `账单导入 ${formatDateTime(state.profit.summary?.latest_import?.completed_at || state.profit.summary?.latest_import?.started_at)}`);
   } else if (state.view === "profit-summary") {
-    setText("updated-at", `统计区间 ${state.profitSummary.data?.range?.start || "--"} ~ ${state.profitSummary.data?.range?.end || "--"}`);
+    setText("updated-at", `统计区间 ${document.getElementById("finance-start").value || "--"} — ${document.getElementById("finance-end").value || "--"}`);
   } else if (state.view === "profit-sku") {
     setText("updated-at", `统计区间 ${state.profitSKU.data?.range?.start || "--"} ~ ${state.profitSKU.data?.range?.end || "--"}`);
   } else if (state.view === "profit-unsettled") {
@@ -533,7 +532,7 @@ function renderProfitSummary() {
   setText("profit-metric-files", last?.source_name || latest?.source_name || "尚未导入");
   setText("profit-metric-upserted", formatNumber(last?.rows_upserted || latest?.rows_upserted || 0));
   setText("profit-metric-synced", formatDateTime(latest?.completed_at || latest?.started_at));
-  if (state.view === "profit") setText("updated-at", `利润导入 ${formatDateTime(latest?.completed_at || latest?.started_at)}`);
+  if (state.view === "profit") setText("updated-at", `账单导入 ${formatDateTime(latest?.completed_at || latest?.started_at)}`);
   document.getElementById("profit-hint").textContent = summary.importing
     ? "正在导入，请稍候。"
     : latest?.error_message
@@ -626,7 +625,7 @@ function renderDashboard() {
   growth.className = summary.period_growth_pct >= 0 ? "positive" : "negative";
   setText("metric-mapping-detail", `${data.mapping_quality.verified} 已确认 · ${data.mapping_quality.inferred} 待确认`);
   setText("summary-period-label", ({ day: "近 14 日仓库换算销量", week: "近 12 周仓库换算销量", month: "近 6 月仓库换算销量" })[state.period]);
-  if (state.view !== "activity-prices") setText("updated-at", `更新于 ${formatDateTime(data.generated_at)}`);
+  updateTopbarForView();
   renderSignals();
   renderSalesChart();
   renderPlatformChart();
@@ -690,8 +689,7 @@ function renderOverviewSKUs() {
     <td class="num">${formatNumber(sku.available_stock)}</td>
     <td class="num">${sku.days_of_cover == null ? "--" : `${formatNumber(sku.days_of_cover)} 天`}</td>
     <td class="num">${formatNumber(sku.forecast.next_30_days)}</td>
-    <td>${confidenceBadge(sku.forecast.confidence)}</td>
-  </tr>`).join("") || emptyRow(7, "当前筛选没有销售记录");
+  </tr>`).join("") || emptyRow(6, "当前筛选没有销售记录");
 }
 
 function renderSKUTable() {
@@ -709,8 +707,7 @@ function renderSKUTable() {
     <td class="num">${formatNumber(sku.forecast.daily_run_rate)}</td>
     <td class="num">${formatNumber(sku.available_stock)}</td>
     <td class="num">${sku.days_of_cover == null ? "--" : formatNumber(sku.days_of_cover)}</td>
-    <td>${confidenceBadge(sku.forecast.confidence)}</td>
-  </tr>`).join("") || emptyRow(10, "没有匹配的 SKU");
+  </tr>`).join("") || emptyRow(9, "没有匹配的 SKU");
 }
 
 function renderWarehouses() {
@@ -873,7 +870,6 @@ function formatNumber(value) { return new Intl.NumberFormat("zh-CN", { maximumFr
 function formatDateTime(value) { return value ? new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value)) : "--"; }
 function formatClock(value) { return value ? new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value)) : "--"; }
 function growthHTML(value) { const className = value >= 0 ? "positive" : "negative"; return `<span class="change ${className}">${value >= 0 ? "+" : ""}${formatNumber(value)}%</span>`; }
-function confidenceBadge(value) { const labels = { high: "高", medium: "中", low: "低", insufficient: "不足" }; return `<span class="badge ${value}">${labels[value] || value}</span>`; }
 function mappingBadge(value) { const labels = { mapped: "已映射", identity: "同码", inferred: "待确认", manual: "人工", unmapped: "未映射" }; return `<span class="badge ${value}">${labels[value] || value}</span>`; }
 function timeSourceLabel(value) { return ({ platform_order_time: "平台下单时间", list_order_time: "列表下单时间", first_seen: "首次发现时间" })[value] || value; }
 function emptyRow(columns, message) { return `<tr class="empty-row"><td colspan="${columns}">${escapeHtml(message)}</td></tr>`; }
