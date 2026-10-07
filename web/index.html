@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="./app.css">
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./finance.css?v=20261007-3">
-  <link rel="stylesheet" href="./system-guide.css?v=20261007-3">
+  <link rel="stylesheet" href="./system-guide.css?v=20261007-4">
   <link rel="stylesheet" href="./workspace.css?v=20261007-3">
 </head>
 <body>
@@ -348,7 +348,7 @@
           <article class="panel"><div class="panel-heading"><div><h2>收支走势</h2><span>结算回款、平台费用与收支净额</span></div><span class="finance-unit">USD</span></div><div class="finance-chart tall"><canvas id="finance-cash-chart" role="img" aria-label="收支趋势图"></canvas><div class="finance-chart-empty" id="finance-cash-empty" hidden>暂无账单</div></div></article>
           <article class="panel"><div class="panel-heading"><div><h2>平台支出构成</h2><span>费用按来源分组</span></div><i data-lucide="pie-chart"></i></div><div class="finance-expense-layout"><div class="finance-donut"><canvas id="finance-expense-chart" role="img" aria-label="平台支出构成图"></canvas><div class="finance-donut-center" id="finance-expense-total"></div><div class="finance-chart-empty" id="finance-expense-empty" hidden>暂无支出</div></div><div id="finance-expense-legend" class="finance-expense-legend"></div><div class="finance-compensation" id="finance-expense-comp"></div></div></article>
         </div>
-        <article class="panel finance-bridge-panel"><div class="panel-heading"><div><h2>回款如何形成收支净额</h2><span>从销售回款到最终净额，逐项核对</span></div><button class="text-command" type="button" data-open-view="system-guide">查看数据流 <i data-lucide="arrow-up-right"></i></button></div><div class="finance-chart bridge"><canvas id="finance-waterfall-chart" role="img" aria-label="回款到收支净额瀑布图"></canvas><div class="finance-chart-empty" id="finance-waterfall-empty" hidden>暂无账单</div></div><div class="finance-formula-strip" id="finance-formula-strip"></div></article>
+        <article class="panel finance-bridge-panel"><div class="panel-heading"><div><h2>收支净额构成</h2></div><button class="text-command" type="button" data-open-view="system-guide">查看数据流 <i data-lucide="arrow-up-right"></i></button></div><div class="finance-chart bridge"><canvas id="finance-waterfall-chart" role="img" aria-label="回款到收支净额瀑布图"></canvas><div class="finance-chart-empty" id="finance-waterfall-empty" hidden>暂无账单</div></div><div class="finance-formula-strip" id="finance-formula-strip"></div></article>
         <article class="panel finance-table-panel"><div class="panel-heading"><div><h2>期间收支报表</h2><span id="profit-summary-range">—</span></div><div class="finance-actions"><span id="finance-row-count" class="finance-unit">—</span><label class="finance-checkbox"><input id="finance-show-detail" type="checkbox">展开费用</label></div></div><div class="table-wrap finance-table-scroll"><table id="finance-summary-table"><thead id="finance-summary-head"></thead><tbody id="profit-summary-body"></tbody><tfoot id="profit-summary-foot"></tfoot></table></div><div class="finance-table-note">收支净额未扣采购、头程等内部成本；“—”表示尚无对应账单或价格。</div></article>
         <details class="finance-estimate-panel"><summary><span><i data-lucide="chart-column"></i>订单销量与估算销售额</span><span id="finance-order-note"></span><i data-lucide="chevron-down"></i></summary><div class="finance-chart"><canvas id="finance-coverage-chart" role="img" aria-label="订单销量与已定价销售额"></canvas></div></details>
       </section>
@@ -391,7 +391,7 @@
   <script src="./vendor/lucide.min.js"></script>
   <script src="./finance-core.js?v=20261007-3"></script>
   <script src="./finance.js?v=20261007-3"></script>
-  <script src="./system-guide.js?v=20261007-3"></script>
+  <script src="./system-guide.js?v=20261007-4"></script>
   <script src="./app.js?v=20261007-3"></script>
 </body>
 </html>
