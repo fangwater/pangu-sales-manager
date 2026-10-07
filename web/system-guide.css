@@ -83,6 +83,13 @@
 .guide-details > .guide-table-wrap { padding: 0; border: 0; border-radius: 0 0 6px 6px; }
 .guide-details ol { padding-left: 20px; margin: 7px 0 0; }
 .guide-details li { margin-top: 8px; }
+.guide-report { margin-top: 12px; }
+.guide-report > summary { padding: 16px; background: #f8faf5; }
+.guide-report > summary > strong { font-size: 13px; font-weight: 600; color: #4b6a41; }
+.guide-report-number { font: 500 11px ui-monospace, monospace; color: #9aaa8a; margin-right: 7px; }
+.guide-report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 24px; padding-top: 12px; }
+.guide-report-grid h3 { font-size: 10px; color: #91a47e; margin: 0 0 6px; font-weight: 500; }
+.guide-report-grid p { font-size: 11px; color: #718365; line-height: 1.85; margin: 0; }
 .guide-tabs { display: flex; gap: 22px; border-bottom: 1px solid #dde5d7; }
 .guide-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 0 13px; color: #87967a; font-size: 12px; }
 .guide-tabs button[aria-selected="true"] { border-bottom-color: #56854a; color: #466c3d; font-weight: 650; }
@@ -147,6 +154,7 @@
   .guide-arrow svg { width: 38px; transform: rotate(90deg); }
   .guide-arrow small { position: absolute; margin: 0; left: calc(50% + 19px); }
   .guide-rule-grid, .guide-assessment-grid { grid-template-columns: minmax(0, 1fr); }
+  .guide-report-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .guide-live-grid { grid-template-columns: minmax(0, 1fr); }
   .guide-tabs { gap: 15px; }
   .guide-tabs button { font-size: 11px; }

@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="./app.css">
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./finance.css?v=20261007">
-  <link rel="stylesheet" href="./system-guide.css?v=20261007-1">
+  <link rel="stylesheet" href="./system-guide.css?v=20261007-2">
 </head>
 <body>
   <div class="app-shell">
@@ -364,7 +364,7 @@
           <div class="table-wrap finance-table-scroll"><table id="finance-summary-table"><thead id="finance-summary-head"></thead><tbody id="profit-summary-body"></tbody><tfoot id="profit-summary-foot"></tfoot></table></div>
           <div class="finance-table-note">“—”表示缺少账单或价格，不代表零收入。销售冲回、运费冲回按流水笔数列示；不合并为退款件数。内部成本、税费尚未接入。</div>
         </article>
-        <details class="finance-methods"><summary><i data-lucide="book-open"></i>报表口径与 Word 说明核对<span>数据来源 · 已实现 · 待完善</span><i data-lucide="chevron-down"></i></summary><div class="finance-methods-body"><div><strong>结算回款</strong><p>以结算流水为基准，按流水 ID 去重。聚合账单用于核对，不再次累加；销售及运费冲回来自结算流水，Word 中“履约违规 2”的引用需修正。</p></div><div><strong>平台收支净额</strong><p>结算净额加已导入费用收支，包含面单、违规、拒付、处置及平台退货补偿。采购、头程、仓储与包装成本未接入，毛利和毛利率暂不可计算。</p></div><div><strong>订单与费用归因</strong><p>订单日期目前使用首次抓取时间，费用使用到账或记账时间。包裹、运单到订单 / SKU 的完整归因尚未完成，无法直接比较同一订单的收入和费用。</p></div><div><strong>待结算回补</strong><p>当前仅检查待处理与已到账数据的重叠，不自动核销。需进一步区分部分结算与全部结算；折后回款列的含义也需确认。</p></div></div></details>
+        <details class="finance-methods"><summary><i data-lucide="book-open"></i>报表构造与计算口径<span>来源 · 计算 · 时间口径</span><i data-lucide="chevron-down"></i></summary><div class="finance-methods-body"><div><strong>结算回款</strong><p>以结算流水为基准，按流水 ID 去重。聚合账单用于核对，不再次累加；销售及运费冲回按结算流水的交易类型归入净额。</p></div><div><strong>平台收支净额</strong><p>结算净额加已导入费用收支，包含面单、违规、拒付、处置及平台退货补偿。采购、头程、仓储与包装成本未接入，毛利和毛利率暂不可计算。</p></div><div><strong>订单与费用归因</strong><p>订单日期目前使用首次抓取时间，费用使用到账或记账时间。包裹、运单到订单 / SKU 的完整归因尚未完成，无法直接比较同一订单的收入和费用。</p></div><div><strong>待结算回补</strong><p>当前仅检查待处理与已到账数据的重叠，不自动核销。需进一步区分部分结算与全部结算；折后回款列的含义也需确认。</p></div></div></details>
       </section>
 
       <section class="view finance-view" id="view-profit-sku">
@@ -406,7 +406,7 @@
   <script src="./vendor/lucide.min.js"></script>
   <script src="./finance-core.js?v=20261007"></script>
   <script src="./finance.js?v=20261007"></script>
-  <script src="./system-guide.js?v=20261007-1"></script>
-  <script src="./app.js?v=20261007-1"></script>
+  <script src="./system-guide.js?v=20261007-2"></script>
+  <script src="./app.js?v=20261007-2"></script>
 </body>
 </html>

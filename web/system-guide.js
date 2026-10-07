@@ -1,20 +1,20 @@
 const systemGuideState = { controller: null };
 
 const guideSources = [
-  ["已出账", "对账中心－账务明细", "结算；拒付；履约违规 1 / 2；平台退货面单承担；处置费", "分工作表保存。结算流水参与回款，其他工作表参与费用收支。", "已实现"],
-  ["已出账", "结算数据－已到账款项－PO 明细账单", "流水 ID、PO、交易类型、到账金额与时间", "与账务明细的结算流水共用同一数据集，按店铺＋流水 ID 去重。", "已实现"],
-  ["已出账", "结算数据－已到账款项－PO 聚合账单", "PO、商品行、销售 / 运费回款及冲回", "保存用于订单和商品核对；聚合金额不再次叠加进结算总额。", "已实现"],
-  ["已出账", "发货面单费－已出账", "包裹号、运单号、账单类型、费用与记账时间", "进入已出账费用；包裹 / 运单到订单与 SKU 的完整关联尚未完成。", "部分实现"],
-  ["已出账", "退货面单费－退至商家仓", "资金账单 ID、PO、运单号、金额与时间", "进入商家仓退货费用；商品级归因仍待完善。", "部分实现"],
-  ["已出账", "退货面单费－退至第三方仓", "资金账单 ID、PO、运单号、金额与时间", "进入第三方仓退货费用，与商家仓分开展示。", "部分实现"],
-  ["未出账", "结算数据－待处理款项", "PO、商品数量、申报金额、待回款与冲回", "作为待处理快照；检查与已到账 PO 的重叠，不自动核销。", "部分实现"],
-  ["未出账", "发货面单费－待出账", "包裹号、运单号、预估面单费", "独立保存预估费用；按包裹、运单和账单信息检查跨状态重叠。", "部分实现"],
+  ["已出账", "对账中心－账务明细", "结算；拒付；履约违规 1 / 2；平台退货面单承担；处置费", "分工作表保存。结算流水参与回款，其他工作表参与费用收支。", "结算与费用"],
+  ["已出账", "结算数据－已到账款项－PO 明细账单", "流水 ID、PO、交易类型、到账金额与时间", "与账务明细的结算流水共用同一数据集，按店铺＋流水 ID 去重。", "结算明细"],
+  ["已出账", "结算数据－已到账款项－PO 聚合账单", "PO、商品行、销售 / 运费回款及冲回", "保存用于订单和商品核对；聚合金额不再次叠加进结算总额。", "订单核对"],
+  ["已出账", "发货面单费－已出账", "包裹号、运单号、账单类型、费用与记账时间", "按店铺汇总已出账费用；未关联到商品的费用不分配至 SKU。", "已出账费用"],
+  ["已出账", "退货面单费－退至商家仓", "资金账单 ID、PO、运单号、金额与时间", "按店铺汇总商家仓退货费用，未归因部分不分配至商品。", "商家仓费用"],
+  ["已出账", "退货面单费－退至第三方仓", "资金账单 ID、PO、运单号、金额与时间", "进入第三方仓退货费用，与商家仓分开展示。", "第三方仓费用"],
+  ["未出账", "结算数据－待处理款项", "PO、商品数量、申报金额、待回款与冲回", "作为待处理快照；检查与已到账 PO 的重叠，不自动核销。", "待回款"],
+  ["未出账", "发货面单费－待出账", "包裹号、运单号、预估面单费", "独立保存预估费用；按包裹、运单和账单信息检查跨状态重叠。", "待面单"],
 ];
 
 const guideAmounts = [
   ["销售回款", "账务明细 · 结算 / PO 明细", "收入", "已接入", "按交易类型汇总结算流水。"],
   ["运费回款", "账务明细 · 结算 / PO 明细", "收入", "已接入", "运费收入单列，不与销售回款混为同一笔。"],
-  ["销售冲回", "结算流水", "扣减", "已接入", "从销售回款中扣除；Word 的“履约违规 2”引用需修正。"],
+  ["销售冲回", "结算流水", "扣减", "已接入", "从销售回款中扣除，按结算流水的交易类型识别。"],
   ["运费冲回", "结算流水", "扣减", "已接入", "从运费回款中扣除；与销售冲回分别计数。"],
   ["延迟到货", "账务明细 · 履约违规 1", "支出", "已接入", "按负的绝对值汇总，原始导入金额保留。"],
   ["虚假发货", "账务明细 · 履约违规 2", "支出", "已接入", "按负的绝对值汇总，与冲回属于不同费用。"],
@@ -22,11 +22,11 @@ const guideAmounts = [
   ["发货面单费", "发货面单费－已出账", "按账单符号", "已接入", "费用保留账单正负方向；待出账面单不计入此处。"],
   ["商家仓退货面单费", "退货面单费－退至商家仓", "按账单符号", "已接入", "独立分类，避免与第三方仓费用混淆。"],
   ["第三方仓退货面单费", "退货面单费－退至第三方仓", "按账单符号", "已接入", "独立分类，保留资金账单 ID 供核对。"],
-  ["平台承担退货面单费", "账务明细 · 其他－退货面单费平台承担", "按账单符号", "已接入", "当前样本为正的补偿款，单独展示，不再次扣作费用。"],
-  ["处置费", "账务明细 · 支出－处置费", "支出", "已补入", "Word 的支出清单未列出；现在按负的绝对值计入。"],
-  ["税金代扣", "当前样本未提供对应数据源", "待确定", "未接入", "留空，不以零代替。"],
-  ["税金退回", "当前样本未提供对应数据源", "待确定", "未接入", "留空，需确认来源及收入 / 冲减口径。"],
-  ["非订单交易费", "当前样本未提供对应数据源", "待确定", "未接入", "留空，不能直接归入某个 SKU。"],
+  ["平台承担退货面单费", "账务明细 · 其他－退货面单费平台承担", "按账单符号", "已接入", "补偿单独展示并保留实际收支方向，不再次扣作费用。"],
+  ["处置费", "账务明细 · 支出－处置费", "支出", "已接入", "按负的绝对值计入平台费用收支。"],
+  ["税金代扣", "暂无对应数据源", "待确定", "未接入", "留空，不以零代替。"],
+  ["税金退回", "暂无对应数据源", "待确定", "未接入", "留空，需确认来源及收入 / 冲减口径。"],
+  ["非订单交易费", "暂无对应数据源", "待确定", "未接入", "留空，不能直接归入某个 SKU。"],
 ];
 
 function guideBadge(text) {
@@ -42,60 +42,91 @@ function guideNode(kicker, title, detail, extra = "") {
   return `<div class="guide-node ${extra}"><small>${kicker}</small><strong>${title}</strong><p>${detail}</p></div>`;
 }
 
+const guideReports = [
+  { view: "profit-summary", title: "财务总览", open: true,
+    source: "TEMU 标准订单、已到账结算流水、已出账面单费及其他平台费用；价格回填结果用于辅助销售额估算。",
+    calculation: "按店铺和日期筛选，先汇总每天的订单与账单，再按日 / 周 / 月分桶。销售及运费回款扣除两类冲回得到结算净额，再加有正负方向的平台费用得到平台收支净额。",
+    display: "指标卡展示金额与价格覆盖率；趋势图展示回款和费用，环图展示支出构成；期间表可展开各项费用，CSV 导出完整明细列。",
+    rule: "订单按标准订单日期，回款按到账时间，费用按记账时间。缺账单的期间显示空白；内部成本未接入，平台收支净额不能作为毛利。" },
+  { view: "profit-sku", title: "SKU 财务分析", open: true,
+    source: "标准订单商品行，以及带有商品 SKU 外部编码的结算流水。订单价格来自已有的价格回填结果。",
+    calculation: "订单按平台 SKU 汇总有效销量与已定价销售额；结算按 SKU 外部编码归组，合并到商品行，计算销售回款、销售冲回和已归因结算净额。分别统计价格匹配行数和取消订单行数。",
+    display: "销售回款前 10 名、价格覆盖卡和商品明细表。关键词筛选、排序与 CSV 作用于当前查询结果。",
+    rule: "没有对应结算流水的 SKU 显示无数据；运费和订单级费用尚未完整分摊到商品，已归因结算净额不能作为 SKU 利润。销量与结算使用各自业务日期。" },
+  { view: "profit-unsettled", title: "待结算检查", open: true,
+    source: "待处理款项快照、待出账面单快照，以及已到账结算流水和 PO 聚合数据。",
+    calculation: "按店铺和币种汇总销售 / 运费待回款及冲回。按同店铺 PO 查询是否已有到账记录；待出账面单按包裹、运单、账单类型和备注核对已出账记录。商品构成按平台 SKU ID 汇总数量与申报金额。",
+    display: "净待回款、待面单费和重叠 PO 指标；店铺核对表、SKU 申报金额构成表及 CSV。使用导入快照，不按日期分桶。",
+    rule: "重叠 PO 仅标记供核对，不自动删除或扣除。回款与面单尚未逐订单对齐，不能直接相减为利润；非零折后回款列会暂停净待回款合计。" },
+  { view: "overview", title: "销售总览",
+    source: "TEMU / SHEIN 标准订单与商品行、仓库 SKU 映射、XLWMS 库存快照。",
+    calculation: "筛选平台、店铺和仓库，只统计符合销售资格的订单。订单数去重，商品数量汇总；平台销量经映射换算成仓库销量。按日、周或月分桶，与前一个对应窗口比较增长率。",
+    display: "订单、销量、活跃 SKU、库存与映射覆盖指标；销量趋势、平台构成、SKU 排名、仓库销量和补货参考。日视图为近 14 日，周视图为近 12 周，月视图为近 6 个月。",
+    rule: "映射覆盖按已确认映射数除以全部映射数计算。销量受平台 / 店铺筛选影响，库存来自仓库快照、按仓库筛选，不表示该店铺独占的库存。" },
+  { view: "skus", title: "SKU 分析",
+    source: "与销售总览相同的订单商品行及库存快照，按仓库 SKU 汇总。需求预测使用最近 90 日的仓库换算销量序列。",
+    calculation: "汇总本期及前期销量、增长率和各仓可用库存。预测日销量基准为近 7 日均值的 65% 加近 28 日均值的 35%，叠加近 28 日趋势并限制极值，累计得到未来 7 / 30 日预测。",
+    display: "SKU 的销量、库存、增长率、需求预测与库存覆盖天数；可搜索商品并比较销售和补货需求。",
+    rule: "库存覆盖天数为可用库存除以预测日销量基准；基准为零时留空。预测可信度取决于销售历史长度与活跃天数，预测量不代表实际订单或确定的采购数量。" },
+  { view: "warehouses", title: "仓库库存",
+    source: "XLWMS 最近成功写入的库存快照，以及已经归属到仓库的标准订单商品行。",
+    calculation: "可用库存按仓库和仓库 SKU 求和；本期仓库销量按订单行的仓库归属汇总。库存 SKU 数统计可用库存非零的 SKU。",
+    display: "每个仓库的可用库存、库存 SKU 数与本期销售，配合仓库对比图查看库存和销售分布。",
+    rule: "库存是当前快照，销量是所选期间的统计。库存同步失败时保留上次成功快照；未归属仓库的销售单独保留，不硬分配到已有仓库。" },
+  { view: "orders", title: "标准订单",
+    source: "TEMU 两个店铺与 SHEIN 的订单及商品数据。来源同步后转为统一订单结构。",
+    calculation: "按平台、店铺、来源订单号识别同一订单并更新状态；商品行保存平台数量、仓库 SKU、换算系数及仓库数量，关联到对应订单。",
+    display: "分页展示订单号、店铺、业务日期、状态、仓库、商品行数、仓库换算数量和日期来源。",
+    rule: "保留日期来源供核对，首次抓取时间不能等同真实下单时间。订单列表展示订单状态，销售报表另按销售资格筛选，二者记录数量可能不同。" },
+  { view: "mappings", title: "SKU 映射",
+    source: "平台商品 SKU、仓库标准 SKU 及 XLWMS 商品配对数据。",
+    calculation: "按平台、店铺和平台 SKU 维护仓库 SKU 配对及换算系数。仓库换算数量由平台商品数量乘以对应系数得到。",
+    display: "映射状态、平台 / 店铺 SKU、仓库 SKU、换算系数和商品名称，可按状态或关键词筛选。",
+    rule: "TEMU 配对以 XLWMS 配对服务为准，修改需该服务接受后才能确认成功。推断映射与已确认映射分开统计，避免把推断当作已核实结果。" },
+  { view: "activity-prices", title: "活动价格",
+    source: "TEMU 活动报名、站点价格、活动场次、商品信息及逐次活动库存观察。",
+    calculation: "将报名、商品 SKU 与站点 / 场次组合为展示行，用本次与上次剩余库存差识别消耗或增加，再结合活动状态判断生效候选与预警。累计消耗为报名库存减当前剩余库存。",
+    display: "活动与报名状态、SKC / SKU、站点和场次、日常价 / 活动价、剩余库存、本次变化与累计消耗，支持筛选和导出。",
+    rule: "同一报名的库存可能由多个 SKU 共享，不能将共享库存重复加总。库存消耗用于活动状态判断，不直接当作订单销量或结算收入。" },
+  { view: "sku-prices", title: "SKU 价格",
+    source: "活动观察解析得到的商品价格状态，以及已保存的 SKU 价格时间区间。",
+    calculation: "按 SKU 保存当前价格、币种、价格来源、生效活动与确认 / 预警状态。价格或状态变化时关闭旧区间并开启新区间，相同状态延续当前区间。",
+    display: "当前 SKU 价格、来源、状态和生效时间，可按 SKU / SKC 或状态筛选，并导出价格快照。",
+    rule: "当前价格快照不能直接套用到历史订单。历史估价按订单时点匹配价格区间，区间外观察价标记为外推；仍需执行订单价格回填后才进入财务估算。" },
+  { view: "profit", title: "账单导入",
+    source: "指定 TEMU 店铺上传的 XLSX，或包含 XLSX 的 ZIP，支持 8 类结算与费用文件。",
+    calculation: "识别文件与工作表类型，解析业务字段并按各自业务键新增或更新；同一导入批次在事务中写入，记录成功 / 失败及新增 / 更新数量。",
+    display: "各类数据表的行数、最近导入结果和导入历史，用于检查财务报表的数据来源与更新时间。",
+    rule: "重复导入按业务键更新，不把相同结算流水重复累计。已出账与待处理独立保存，导入成功不代表历史价格回填或待结算核销已完成。" },
+];
+
+function guideReportCard(report, index) {
+  return `<details class="guide-details guide-report" data-guide-report="${report.view}" ${report.open ? "open" : ""}><summary><span class="guide-report-number">${String(index + 1).padStart(2, "0")}</span><strong>${report.title}</strong><i data-lucide="chevron-down"></i></summary><div><div class="guide-report-grid">${[["数据来源", report.source], ["聚合与计算", report.calculation], ["图表与明细", report.display], ["使用口径", report.rule]].map(([label, text]) => `<article><h3>${label}</h3><p>${text}</p></article>`).join("")}</div><div class="guide-links"><button type="button" data-open-view="${report.view}">打开${report.title} <i data-lucide="arrow-up-right"></i></button></div></div></details>`;
+}
+
 function renderSystemGuide() {
   document.getElementById("system-guide-content").innerHTML = `
-    <div class="guide-hero">
-      <div><span class="guide-kicker">SYSTEM GUIDE / TEMU</span><h2>从原始数据，到可解释的报表</h2><p>依据《TEMU数据来源.docx》与当前实现整理。了解每个金额来自哪里、如何计算，以及哪些环节仍需补齐。</p></div>
-      <button class="secondary-command" id="guide-print" type="button"><i data-lucide="printer"></i>打印说明</button>
-    </div>
-    <div class="guide-principles"><div><strong>8 类账单</strong><span>已出账与未出账分开保存</span></div><div><strong>3 条数据链路</strong><span>订单库存 · 财务账单 · 活动价格</span></div><div><strong>3 种金额口径</strong><span>已到账 · 辅助估算 · 待结算</span></div></div>
-    <nav class="guide-toc" aria-label="说明目录"><a href="#guide-flow">数据流</a><a href="#guide-sources">来源清单</a><a href="#guide-calculation">计算逻辑</a><a href="#guide-settlement">结算回补</a><a href="#guide-implementation">实现评估</a><a href="#guide-sync">同步状态</a></nav>
-
-    <section class="guide-section" id="guide-flow"><div class="guide-section-heading"><span>01</span><div><h2>三条链路，各自更新</h2><p>立即同步更新订单、库存与 SKU 映射；财务账单需要导入，活动价格由独立任务采集。</p></div></div>
-      <figure class="guide-diagram"><div class="guide-flow-head"><span>数据来源</span><span>处理逻辑</span><span>报表输出</span></div>
-        <div class="guide-flow-row">${guideNode("订单与库存", "TEMU / SHEIN / XLWMS", "平台订单、仓库库存及 SKU 配对。")}${guideArrow("同步")}${guideNode("标准化", "订单与仓库 SKU", "按平台、店铺、订单去重；通过 SKU 映射和换算系数统一仓库销量。")}${guideArrow("汇总")}${guideNode("销售分析", "销量 · 库存 · 映射覆盖", "订单同步与库存写入分别处理；单步失败不代表所有数据停更。")}</div>
-        <div class="guide-flow-row">${guideNode("财务账单", "TEMU 的 8 类 Excel", "在账单导入页选择店铺，上传 XLSX 或含 XLSX 的 ZIP。")}${guideArrow("导入")}${guideNode("业务键去重", "结算、费用与待处理分开", "结算按店铺＋流水 ID 更新；聚合账单用于核对，待处理保留为独立快照。")}${guideArrow("计算")}${guideNode("财务分析", "回款 · 费用 · 待结算", "已到账金额来自账单；待结算不并入已到账金额，内部成本尚未接入。")}</div>
-        <div class="guide-flow-row">${guideNode("活动价格", "TEMU 活动与 SKU 价格", "保存生效活动、价格观察与时间区间。")}${guideArrow("匹配")}${guideNode("订单价格回填", "订单时点 × 商品 SKU", "优先匹配对应时间区间；外推价格标为警告，无价格的订单行保留缺失。")}${guideArrow("估算")}${guideNode("辅助估算", "已定价销售额 · 覆盖率", "只计算已定价订单行，不外推至全部销量；不能替代实际回款。")}</div>
-        <figcaption>实线表示已经存在的处理路径。后续图中的虚线表示待完成步骤。</figcaption>
-      </figure>
-      <div class="guide-links"><button type="button" data-open-view="orders">查看标准订单 <i data-lucide="arrow-up-right"></i></button><button type="button" data-open-view="profit">导入财务账单 <i data-lucide="arrow-up-right"></i></button><button type="button" data-open-view="sku-prices">查看 SKU 价格 <i data-lucide="arrow-up-right"></i></button></div>
-    </section>
-
-    <section class="guide-section" id="guide-sources"><div class="guide-section-heading"><span>02</span><div><h2>Word 的数据来源，如何进入系统</h2><p>来源是否已接入，与是否已经完成订单 / SKU 归因，是两个不同问题。</p></div></div>
-      <div class="guide-filter" role="group" aria-label="按来源实现状态筛选"><button class="active" aria-pressed="true" data-guide-filter="全部" type="button">全部 8 类</button><button aria-pressed="false" data-guide-filter="已实现" type="button">已实现</button><button aria-pressed="false" data-guide-filter="部分实现" type="button">部分实现</button><span id="guide-source-count" aria-live="polite">8 类来源</span></div>
-      <div class="guide-table-wrap"><table class="guide-table"><caption class="guide-sr-only">八类 TEMU 账单的数据来源和实现状态</caption><thead><tr><th>阶段 / 文件</th><th>提供的数据</th><th>当前处理</th><th>实现状态</th></tr></thead><tbody>${guideSources.map(row => `<tr data-guide-source-state="${row[4]}"><td><small>${row[0]}</small><strong>${row[1]}</strong></td><td>${row[2]}</td><td>${row[3]}</td><td>${guideBadge(row[4])}</td></tr>`).join("")}</tbody></table></div>
-      <div class="guide-note"><i data-lucide="layers"></i><div><strong>三种结算展示，共用流水基准</strong><p>2026-10-07 样本核对：账务明细有 15,145 条结算流水；PO 明细的 7,669 条全部包含于其中，同一流水 ID 的金额无差异。聚合账单的 3,723 个 PO 也均在流水中，但三种文件覆盖范围并不完全相同。把三份金额直接相加会重复累计。</p></div></div>
-      <details class="guide-details"><summary>基础信息与费用的关联方式 <i data-lucide="chevron-down"></i></summary><div><p>Word 的“基础信息 9 列”实际列举了 11 项：订单编号、产品 ID、店铺 / 站点、费用名、费用时间、付款时间、MSKU、MSKU 属性、产品名称、包裹号、运单号。</p><p>订单 API 和标准订单已提供部分订单及商品信息；完整的“订单 → 商品 → 包裹 / 运单 → 费用 → 付款时间”明细链尚未形成。发货面单不能仅凭 SKU 推算，应先用包裹 / 运单找到订单，再确定商品费用分摊规则。</p></div></details>
-    </section>
-
-    <section class="guide-section" id="guide-calculation"><div class="guide-section-heading"><span>03</span><div><h2>选择金额口径，查看计算逻辑</h2><p>到账事实、价格估算和待处理快照各有自己的数据与时间口径。</p></div></div>
-      <div class="guide-tabs" role="tablist" aria-label="金额口径"><button id="guide-tab-posted" role="tab" aria-selected="true" aria-controls="guide-panel-posted" tabindex="0" data-guide-tab="posted" type="button">已到账报表</button><button id="guide-tab-estimate" role="tab" aria-selected="false" aria-controls="guide-panel-estimate" tabindex="-1" data-guide-tab="estimate" type="button">活动价辅助估算</button><button id="guide-tab-pending" role="tab" aria-selected="false" aria-controls="guide-panel-pending" tabindex="-1" data-guide-tab="pending" type="button">待结算快照</button></div>
-      <div class="guide-calculation-panel" id="guide-panel-posted" role="tabpanel" aria-labelledby="guide-tab-posted" tabindex="0"><div class="guide-formula"><span>结算回款净额</span><strong>销售回款 ＋ 运费回款 − 销售冲回绝对值 − 运费冲回绝对值</strong></div><div class="guide-formula featured"><span>平台收支净额</span><strong>结算回款净额 ＋ 已导入的平台费用收支</strong><small>支出按负数相加，平台补偿保留账单方向；采购、头程等内部成本未扣除。</small></div><div class="guide-example"><span>计算示例 · 非真实订单</span><p>销售 100 ＋ 运费 20 − 销售冲回 5 − 运费冲回 1 ＝ 净结算 114；面单 −30、违规 −2、补偿 ＋3，平台收支净额为 <strong>85</strong>。因为缺少内部成本，不能据此得出毛利。</p></div></div>
-      <div class="guide-calculation-panel" id="guide-panel-estimate" role="tabpanel" aria-labelledby="guide-tab-estimate" tabindex="0" hidden><div class="guide-formula featured"><span>已定价订单行的估算销售额</span><strong>Σ（有效销量订单行数量 × 匹配的单位价格）</strong></div><div class="guide-formula"><span>价格覆盖率</span><strong>已定价有效订单行 ÷ 全部有效订单行 × 100%</strong></div><p>取消或不符合销售资格的订单排除。订单时间落在价格区间内时按区间匹配；使用区间外观察价时标记为外推。没有价格的行不当作零销售额，也不把少量已定价样本外推至全部订单。</p><p>当前 TEMU 订单日期主要使用首次抓取时间，尚不能精确代表成交时点。活动采集持续更新，并不意味着历史订单已自动完成价格回填；当前全部已定价行仍为外推警告。</p></div>
-      <div class="guide-calculation-panel" id="guide-panel-pending" role="tabpanel" aria-labelledby="guide-tab-pending" tabindex="0" hidden><div class="guide-formula featured"><span>快照净待回款</span><strong>销售待回款 ＋ 运费待回款 − 两类冲回绝对值</strong></div><p>待出账面单费来自另一份快照，未与待回款逐订单对齐，因此不能把两份总额直接相减为利润。</p><p>“已减优惠”的销售 / 运费回款列，Word 尚未说明是替代金额还是独立交易；当前样本为零。遇到非零折后列时暂停净待回款合计，等待口径确认。与已结算数据重叠的 PO 单列提醒，不自动扣除。</p></div>
-      <div class="guide-rule-grid"><article><i data-lucide="calendar-days"></i><h3>时间</h3><p>上海时区。销量按标准订单日期；结算按到账时间；费用按记账时间。先筛日期，再按日 / 周 / 月分桶，不能把不同时点的金额直接视为同一订单利润。</p></article><article><i data-lucide="circle-dollar-sign"></i><h3>币种与缺失</h3><p>当前金额合计以 USD 为口径。出现其他或未知币种时暂停 USD 金额合计；缺账单、缺价格、未接入成本留空，已知零金额才显示 0。</p></article><article><i data-lucide="package-search"></i><h3>SKU 与退款</h3><p>SKU 页面只汇总已能关联的商品数据，尚未完整分摊运费和订单费用。取消订单、销售冲回、运费冲回及拒付分别计数，不相加为退款件数。</p></article></div>
-      <details class="guide-details"><summary>平台收入与支出的完整来源表 <i data-lucide="chevron-down"></i></summary><div class="guide-table-wrap"><table class="guide-table guide-amount-table"><caption class="guide-sr-only">平台收入和支出来源及计算方向</caption><thead><tr><th>项目</th><th>数据来源</th><th>方向</th><th>状态 / 计算规则</th></tr></thead><tbody>${guideAmounts.map(row => `<tr><td><strong>${row[0]}</strong></td><td>${row[1]}</td><td>${row[2]}</td><td>${guideBadge(row[3])}<p>${row[4]}</p></td></tr>`).join("")}</tbody></table></div></details>
-      <div class="guide-links"><button type="button" data-open-view="profit-summary">查看财务总览 <i data-lucide="arrow-up-right"></i></button><button type="button" data-open-view="profit-sku">查看 SKU 财务分析 <i data-lucide="arrow-up-right"></i></button></div>
-    </section>
-
-    <section class="guide-section" id="guide-settlement"><div class="guide-section-heading"><span>04</span><div><h2>从待处理到已结算，回补还缺什么</h2><p>Word 要求已出账后覆盖预估。当前完成导入与重叠检查，尚未完成自动回补。</p></div></div>
-      <figure class="guide-settlement-flow">${guideNode("已实现", "① 保留两类快照", "待回款与待面单分别导入。")}${guideArrow("检查")}${guideNode("已实现", "② 标记已到账重叠", "PO 比对；面单按包裹、运单与账单信息比对。")}${guideArrow("待完善", true)}${guideNode("待实现", "③ 逐交易核对", "区分部分结算、全部结算及后续冲回。", "pending")}${guideArrow("待完善", true)}${guideNode("待实现", "④ 回补与保留差额", "用已到账替换对应预估，保留仍待结算部分与核对记录。", "pending")}<figcaption>同一个 PO 出现在两边，只能证明需要核对。自动删除整个 PO 会误删尚未结清的部分。</figcaption></figure>
-      <div class="guide-note"><i data-lucide="scan-line"></i><div><strong>导入去重与跨状态回补不同</strong><p>重复导入会按业务键更新同一条记录；待出账与已出账面单的业务键包含出账状态，因此不会互相覆盖。待处理订单也不会因导入结算流水而被自动删除。</p></div></div>
-      <div class="guide-links"><button type="button" data-open-view="profit-unsettled">查看待结算重叠 <i data-lucide="arrow-up-right"></i></button></div>
-    </section>
-
-    <section class="guide-section" id="guide-implementation"><div class="guide-section-heading"><span>05</span><div><h2>当前实现与 Word 要求的差距</h2><p>以下状态说明当前功能边界；待实现步骤不会在示意图里画成已完成。</p></div></div>
-      <div class="guide-assessment-grid"><article class="ready"><span>已实现 / 已修正</span><h3>账单汇总可追溯</h3><ul><li>8 类导入、同店铺结算流水去重。</li><li>销售及运费回款、冲回、主要平台费用分类。</li><li>违规 / 拒付支出统一方向，处置费补入汇总。</li><li>筛选、导出、价格覆盖与待结算重叠检查。</li></ul></article><article class="pending"><span>部分实现 / 待完善</span><h3>订单到费用的关联</h3><ul><li>包裹 / 运单到订单及 SKU 的完整关联。</li><li>真实订单时间与持续价格回填。</li><li>真实退款订单数、退款商品件数。</li><li>已出账与未出账逐交易回补核销。</li></ul></article><article class="missing"><span>尚未接入</span><h3>完整利润所需数据</h3><ul><li>税金代扣、税金退回、非订单交易费。</li><li>Word 要求的采购成本、头程费用、物流运费。</li><li>成本与面单费用的边界，避免重复扣除。</li><li>订单 / SKU 毛利润与毛利率。</li></ul></article></div>
-      <details class="guide-details" open><summary>需要修正文档的内容 <i data-lucide="chevron-down"></i></summary><div><ol><li><strong>冲回来源：</strong>销售冲回和运费冲回应来自结算流水；“履约违规 2”对应虚假发货支出。</li><li><strong>费用清单：</strong>实际账单包含处置费，Word 清单遗漏；平台承担退货面单费应按补偿的实际方向计算。</li><li><strong>字段数量：</strong>“基础信息 9 列”列举了 11 项，应重新编号，并明确订单、费用及付款时间。</li><li><strong>结算覆盖：</strong>三种结算文件展示有重合但范围不同，应按流水基准去重，不假定完全对应。</li><li><strong>待处理口径：</strong>需明确折后列的含义、部分结算的差额和费用归属，再实现自动回补。</li></ol></div></details>
-    </section>
-
-    <section class="guide-section" id="guide-sync"><div class="guide-section-heading"><span>06</span><div><h2>数据链路状态，如何判断影响</h2><p>下面读取当前系统状态；账单导入时间、价格回填与订单库存同步分别展示。</p></div><button class="secondary-command" id="guide-refresh" type="button"><i data-lucide="refresh-cw"></i>刷新状态</button></div>
-      <div id="guide-live-status" class="guide-live-grid" aria-live="polite"><p>正在读取数据状态…</p></div>
-      <div class="guide-note warning"><i data-lucide="database"></i><div><strong>当前库存同步失败的原因 · 2026-10-07 核对</strong><p>XLWMS 库存源有 3 组同仓库、同 SKU 的记录，分别属于两种库存类型。当前同步读入时未保留库存类型，而库存目标只允许每组仓库＋SKU 保存一行，导致重复写入冲突。库存更新在同一事务中回滚，保留上次成功快照。</p><p>订单与库存分别写入；已有订单同步数量表示本轮订单部分确实更新。财务 Excel 导入和活动价格采集属于独立链路。修复库存前，需要明确不同库存类型应如何聚合，避免随意去重或重复累计数量。</p></div></div>
-      <div class="guide-next"><strong>形成完整利润报表的后续顺序</strong><ol><li>补齐最近月份及另一店铺的账单，修复库存同步。</li><li>补准确订单时间，持续回填价格并与已结算样本验证。</li><li>完成订单费用归因、真实退款数量与结算回补。</li><li>统一采购、头程与物流成本口径，再计算毛利。</li></ol></div>
-    </section>
-    <footer class="guide-footer">说明基线：2026-10-07 · 原始依据：《TEMU数据来源.docx》、样本 Excel 与当前计算实现。数据状态由系统接口实时读取。</footer>`;
+    <div class="guide-hero"><div><span class="guide-kicker">REPORT GUIDE</span><h2>各报表的数据与计算方式</h2><p>从数据来源、聚合计算、图表明细和使用口径四个方面，说明每个页面如何构造。</p></div><button class="secondary-command" id="guide-print" type="button"><i data-lucide="printer"></i>打印说明</button></div>
+    <div class="guide-principles"><div><strong>${guideReports.length} 个页面</strong><span>逐项说明来源与构造方式</span></div><div><strong>3 类数据</strong><span>订单库存 · 财务账单 · 活动价格</span></div><div><strong>统一说明口径</strong><span>来源 · 计算 · 展示 · 使用规则</span></div></div>
+    <nav class="guide-toc" aria-label="说明目录"><a href="#guide-reports">各报表构造</a><a href="#guide-flow">数据流</a><a href="#guide-sources">账单来源</a><a href="#guide-calculation">金额计算</a><a href="#guide-settlement">待结算核对</a><a href="#guide-sync">更新规则</a></nav>
+    <section class="guide-section" id="guide-reports"><div class="guide-section-heading"><span>01</span><div><h2>各报表如何构造</h2><p>展开对应页面，查看数据从输入到展示的处理过程。</p></div></div>${guideReports.map(guideReportCard).join("")}</section>
+    <section class="guide-section" id="guide-flow"><div class="guide-section-heading"><span>02</span><div><h2>报表数据流</h2><p>订单与库存、财务账单、活动价格分别更新，再按各自口径形成报表。</p></div></div><figure class="guide-diagram"><div class="guide-flow-head"><span>数据来源</span><span>处理逻辑</span><span>报表输出</span></div>
+      <div class="guide-flow-row">${guideNode("订单与库存", "TEMU / SHEIN / XLWMS", "平台订单、仓库库存及 SKU 配对。")}${guideArrow("同步")}${guideNode("标准化", "订单与仓库 SKU", "按平台、店铺、订单去重；通过 SKU 映射和换算系数统一仓库销量。")}${guideArrow("汇总")}${guideNode("销售分析", "销售总览 · SKU · 仓库", "按业务日期和筛选条件聚合销量，与当前库存及映射状态结合。")}</div>
+      <div class="guide-flow-row">${guideNode("财务账单", "TEMU 的 8 类 Excel", "按店铺导入结算、费用和待处理文件。")}${guideArrow("导入")}${guideNode("业务键去重", "结算、费用与待处理分开", "结算按店铺＋流水 ID 更新；费用分类保存，待处理作为独立快照。")}${guideArrow("计算")}${guideNode("财务分析", "财务总览 · SKU · 待结算", "汇总结算收支和已归因商品回款，待处理金额单独展示。")}</div>
+      <div class="guide-flow-row">${guideNode("活动价格", "活动与 SKU 价格观察", "保存报名、库存变化、价格状态与时间区间。")}${guideArrow("匹配")}${guideNode("订单价格回填", "订单时点 × 商品 SKU", "按时间区间匹配单位价格，区间外观察价标记为外推。")}${guideArrow("估算")}${guideNode("辅助估算", "已定价销售额 · 覆盖率", "只计算已定价有效订单行，不外推至全部销量。")}</div><figcaption>订单、回款和费用分别使用各自业务时间；价格快照与订单价格回填也分别更新。</figcaption></figure></section>
+    <section class="guide-section" id="guide-sources"><div class="guide-section-heading"><span>03</span><div><h2>财务报表的账单来源</h2><p>各文件按店铺导入，根据业务字段进入结算、费用或待处理数据集。</p></div></div><div class="guide-filter" role="group" aria-label="按账单阶段筛选"><button class="active" aria-pressed="true" data-guide-filter="全部" type="button">全部 8 类</button><button aria-pressed="false" data-guide-filter="已出账" type="button">已出账</button><button aria-pressed="false" data-guide-filter="未出账" type="button">未出账</button><span id="guide-source-count" aria-live="polite">8 类来源</span></div><div class="guide-table-wrap"><table class="guide-table"><caption class="guide-sr-only">八类 TEMU 账单的数据来源和汇总用途</caption><thead><tr><th>阶段 / 文件</th><th>提供的数据</th><th>处理方式</th><th>汇总用途</th></tr></thead><tbody>${guideSources.map(row => `<tr data-guide-source-state="${row[0]}"><td><small>${row[0]}</small><strong>${row[1]}</strong></td><td>${row[2]}</td><td>${row[3]}</td><td>${guideBadge(row[4])}</td></tr>`).join("")}</tbody></table></div>
+      <div class="guide-note"><i data-lucide="layers"></i><div><strong>同一笔结算，只累计一次</strong><p>账务明细的结算表和 PO 明细共用结算流水，按店铺＋流水 ID 合并。PO 聚合账单用于订单与商品核对，聚合金额不再次加入结算总额。各文件覆盖范围可能不同，不能把三份金额直接相加。</p></div></div><details class="guide-details"><summary>订单与费用如何关联 <i data-lucide="chevron-down"></i></summary><div><p>订单和商品信息包括订单编号、产品 ID、店铺 / 站点、MSKU、规格及商品名称；费用信息包括费用名、业务时间、到账时间、包裹号与运单号。</p><p>订单商品行以平台、店铺和订单标识关联；带商品 SKU 外部编码的结算流水可进入 SKU 财务汇总。发货面单主要带包裹 / 运单标识，未完整关联到商品时保留在店铺费用汇总，不直接分配给某个 SKU。</p></div></details></section>
+    <section class="guide-section" id="guide-calculation"><div class="guide-section-heading"><span>04</span><div><h2>财务报表的金额计算</h2><p>选择对应口径，查看各指标的计算方式。</p></div></div><div class="guide-tabs" role="tablist" aria-label="金额口径"><button id="guide-tab-posted" role="tab" aria-selected="true" aria-controls="guide-panel-posted" tabindex="0" data-guide-tab="posted" type="button">已到账报表</button><button id="guide-tab-estimate" role="tab" aria-selected="false" aria-controls="guide-panel-estimate" tabindex="-1" data-guide-tab="estimate" type="button">活动价辅助估算</button><button id="guide-tab-pending" role="tab" aria-selected="false" aria-controls="guide-panel-pending" tabindex="-1" data-guide-tab="pending" type="button">待结算快照</button></div>
+      <div class="guide-calculation-panel" id="guide-panel-posted" role="tabpanel" aria-labelledby="guide-tab-posted" tabindex="0"><div class="guide-formula"><span>结算回款净额</span><strong>销售回款 ＋ 运费回款 − 销售冲回绝对值 − 运费冲回绝对值</strong></div><div class="guide-formula featured"><span>平台收支净额</span><strong>结算回款净额 ＋ 已导入的平台费用收支</strong><small>支出按负数相加，补偿保留账单方向；内部成本未扣除。</small></div><div class="guide-example"><span>计算示例 · 非真实订单</span><p>销售 100 ＋ 运费 20 − 销售冲回 5 − 运费冲回 1 ＝ 净结算 114；面单 −30、违规 −2、补偿 ＋3，平台收支净额为 <strong>85</strong>。缺少内部成本时不输出毛利。</p></div></div>
+      <div class="guide-calculation-panel" id="guide-panel-estimate" role="tabpanel" aria-labelledby="guide-tab-estimate" tabindex="0" hidden><div class="guide-formula featured"><span>已定价订单行的估算销售额</span><strong>Σ（有效销量订单行数量 × 匹配的单位价格）</strong></div><div class="guide-formula"><span>价格覆盖率</span><strong>已定价有效订单行 ÷ 全部有效订单行 × 100%</strong></div><p>取消或不符合销售资格的订单排除。按订单时点匹配价格区间；区间外观察价标记为外推。缺价格的订单行留空，不当作零销售额，也不把已定价样本外推至全部订单。</p><p>订单日期来源与匹配质量会影响估算可靠性；首次抓取时间不等同真实成交时点。价格采集和订单价格回填分别更新，估算只使用已经写入订单行的匹配结果。</p></div>
+      <div class="guide-calculation-panel" id="guide-panel-pending" role="tabpanel" aria-labelledby="guide-tab-pending" tabindex="0" hidden><div class="guide-formula featured"><span>快照净待回款</span><strong>销售待回款 ＋ 运费待回款 − 两类冲回绝对值</strong></div><p>待出账面单与待回款来自不同快照，未逐订单对齐，不能将两份总额直接相减为利润。</p><p>遇到非零“已减优惠”回款列时暂停净待回款合计，待确认其是否替代原回款或表示独立交易后再计算。与已到账记录重叠的 PO 单列提醒，不自动扣除。</p></div>
+      <div class="guide-rule-grid"><article><i data-lucide="calendar-days"></i><h3>时间</h3><p>上海时区。销量按标准订单日期，结算按到账时间，费用按记账时间。财务总览先筛日期，再按日 / 周 / 月分桶。</p></article><article><i data-lucide="circle-dollar-sign"></i><h3>币种与缺失</h3><p>金额合计以 USD 为口径，出现其他或未知币种时暂停合计。缺账单、缺价格、未接入成本留空，已知零金额才显示 0。</p></article><article><i data-lucide="package-search"></i><h3>商品与退款</h3><p>取消订单、销售冲回、运费冲回及拒付分别计数，不合并为退款件数。商品汇总只包含可关联的结算，不替代完整订单利润。</p></article></div>
+      <details class="guide-details"><summary>平台收入与支出的完整来源表 <i data-lucide="chevron-down"></i></summary><div class="guide-table-wrap"><table class="guide-table guide-amount-table"><caption class="guide-sr-only">平台收入和支出来源及计算方向</caption><thead><tr><th>项目</th><th>数据来源</th><th>方向</th><th>状态 / 计算规则</th></tr></thead><tbody>${guideAmounts.map(row => `<tr><td><strong>${row[0]}</strong></td><td>${row[1]}</td><td>${row[2]}</td><td>${guideBadge(row[3])}<p>${row[4]}</p></td></tr>`).join("")}</tbody></table></div></details></section>
+    <section class="guide-section" id="guide-settlement"><div class="guide-section-heading"><span>05</span><div><h2>待结算报表如何核对重叠</h2><p>保留快照的原始待处理金额，把需要核对的已到账重叠单列展示。</p></div></div><figure class="guide-settlement-flow">${guideNode("输入", "① 待处理快照", "分别读取待回款与待出账面单。")}${guideArrow("关联")}${guideNode("核对键", "② 同店铺标识", "订单用 PO；面单用包裹、运单、账单类型和备注。")}${guideArrow("比对")}${guideNode("识别重叠", "③ 查询已到账", "查找结算流水 / 聚合 PO 或已出账面单中的对应记录。")}${guideArrow("汇总")}${guideNode("输出", "④ 展示核对项", "按店铺和币种列出重叠数量及原始待处理金额。")}<figcaption>PO 重叠不证明已经全部结清。报表只提示核对，不自动核销，避免误删仍待结算的部分。</figcaption></figure><div class="guide-note"><i data-lucide="scan-line"></i><div><strong>重复导入的更新方式</strong><p>相同业务键的记录在重复导入时更新；面单业务键包含出账状态，因此待出账与已出账不会互相覆盖。导入已到账流水也不会自动删除待处理 PO。</p></div></div></section>
+    <section class="guide-section" id="guide-sync"><div class="guide-section-heading"><span>06</span><div><h2>各报表的更新规则</h2><p>分别查看订单库存、账单导入、价格覆盖与待结算核对的数据状态。</p></div><button class="secondary-command" id="guide-refresh" type="button"><i data-lucide="refresh-cw"></i>刷新状态</button></div><div id="guide-live-status" class="guide-live-grid" aria-live="polite"><p>正在读取数据状态…</p></div><div class="guide-rule-grid"><article><i data-lucide="refresh-cw"></i><h3>销售与库存页面</h3><p>立即同步读取订单、库存和配对数据。各步骤独立写入，库存写入失败时保留上次成功快照，订单可能仍有更新。报表刷新读取当前已保存数据。</p></article><article><i data-lucide="file-input"></i><h3>财务页面</h3><p>上传账单后更新对应数据集，再重新汇总财务报表。立即同步不会补充未上传的结算或费用账单，待处理报表以最近导入的快照为准。</p></article><article><i data-lucide="badge-dollar-sign"></i><h3>价格与估算</h3><p>活动采集更新活动和当前价格状态；历史价格区间供订单回填使用。财务估算在回填结果写入订单后更新，覆盖率反映已匹配订单行的占比。</p></article></div></section>
+    <footer class="guide-footer">报表说明 · 上海时区 · 金额与数量以各报表的来源、筛选条件和计算口径为准。上方数据状态从系统接口读取。</footer>`;
 }
+
 
 function bindSystemGuide() {
   renderSystemGuide();

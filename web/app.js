@@ -32,7 +32,7 @@ const viewMeta = {
   "profit-summary": ["财务总览", "TEMU · 回款、费用与估算覆盖"],
   "profit-sku": ["SKU 财务分析", "商品销售回款与价格估算覆盖"],
   "profit-unsettled": ["待结算检查", "待回款、面单费与已结算重叠检查"],
-  "system-guide": ["系统说明", "TEMU 数据来源、计算口径与实现状态"],
+  "system-guide": ["系统说明", "各报表的数据来源、聚合方式与展示规则"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -496,7 +496,7 @@ function updateTopbarForView() {
   } else if (state.view === "profit-unsettled") {
     setText("updated-at", `检查于 ${formatDateTime(state.profitUnsettled.status?.generated_at)}`);
   } else if (state.view === "system-guide") {
-    setText("updated-at", "说明基线 2026-10-07 · 上海时区");
+    setText("updated-at", "报表口径 · 上海时区");
   } else if (state.dashboard) {
     setText("updated-at", `更新于 ${formatDateTime(state.dashboard.generated_at)}`);
   }
