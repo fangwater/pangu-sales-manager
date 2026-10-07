@@ -32,6 +32,7 @@ const viewMeta = {
   "profit-summary": ["财务总览", "TEMU · 回款、费用与估算覆盖"],
   "profit-sku": ["SKU 财务分析", "商品销售回款与价格估算覆盖"],
   "profit-unsettled": ["待结算检查", "待回款、面单费与已结算重叠检查"],
+  "system-guide": ["系统说明", "TEMU 数据来源、计算口径与实现状态"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -82,6 +83,7 @@ function bindEvents() {
   document.getElementById("profit-upload-form").addEventListener("submit", uploadProfitFile);
   document.getElementById("profit-refresh").addEventListener("click", loadProfitSummary);
   bindFinanceReports();
+  bindSystemGuide();
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
 
@@ -91,7 +93,7 @@ async function switchView(view) {
   document.querySelectorAll(".view").forEach(section => section.classList.toggle("active", section.id === `view-${view}`));
   document.getElementById("page-title").textContent = viewMeta[view][0];
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
-  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled"];
+  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled", "system-guide"];
   document.getElementById("global-filters").hidden = customFilterViews.includes(view);
   if (view === "mappings") await loadMappings();
   if (view === "orders") await loadOrders();
@@ -102,6 +104,7 @@ async function switchView(view) {
   if (view === "profit-summary" && !state.profitSummary.loaded) await loadProfitDailySummary();
   if (view === "profit-sku" && !state.profitSKU.loaded) await loadProfitSKUSummary();
   if (view === "profit-unsettled" && !state.profitUnsettled.loaded) await loadProfitUnsettledSummary();
+  if (view === "system-guide") await loadSystemGuideStatus();
   updateTopbarForView();
   Object.entries(state.charts).filter(([key]) => key.startsWith("finance")).forEach(([, chart]) => chart.resize());
 
@@ -111,7 +114,9 @@ async function switchView(view) {
   const url = new URL(window.location.href);
   if (customFilterViews.includes(view)) url.searchParams.set("view", view);
   else url.searchParams.delete("view");
+  if (view !== "system-guide" && url.hash.startsWith("#guide-")) url.hash = "";
   window.history.replaceState({}, "", url);
+  if (view === "system-guide") scrollToSystemGuideSection(window.location.hash);
 }
 
 async function loadActivityPrices() {
@@ -476,7 +481,7 @@ function formatActivityTime(value) { return value ? new Intl.DateTimeFormat("zh-
 function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 
 function updateTopbarForView() {
-  const snapshotView = ["activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled"].includes(state.view);
+  const snapshotView = ["activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled", "system-guide"].includes(state.view);
   document.getElementById("sync-button").hidden = snapshotView;
   if (state.view === "activity-prices") {
     setText("updated-at", `活动快照 ${formatDateTime(state.activity.meta.synced_at)}`);
@@ -490,6 +495,8 @@ function updateTopbarForView() {
     setText("updated-at", `统计区间 ${state.profitSKU.data?.range?.start || "--"} ~ ${state.profitSKU.data?.range?.end || "--"}`);
   } else if (state.view === "profit-unsettled") {
     setText("updated-at", `检查于 ${formatDateTime(state.profitUnsettled.status?.generated_at)}`);
+  } else if (state.view === "system-guide") {
+    setText("updated-at", "说明基线 2026-10-07 · 上海时区");
   } else if (state.dashboard) {
     setText("updated-at", `更新于 ${formatDateTime(state.dashboard.generated_at)}`);
   }
@@ -821,7 +828,7 @@ async function pollSync() {
 
 function renderSourceStatus() {
   const sync = state.dashboard.sync;
-  if (sync.status === "failed") setSourceStatus("error", "最近同步失败");
+  if (sync.status === "failed") setSourceStatus("error", sync.error?.includes("warehouse_inventory_pkey") ? "库存同步失败" : "最近同步失败");
   else if (sync.status === "running") setSourceStatus("pending", "正在同步");
   else setSourceStatus("ok", sync.completed_at ? `${sync.mode === "incremental" ? "增量" : "全量"}同步于 ${formatClock(sync.completed_at)}` : "等待首次同步");
 }

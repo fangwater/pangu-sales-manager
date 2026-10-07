@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="./app.css">
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./finance.css?v=20261007">
+  <link rel="stylesheet" href="./system-guide.css?v=20261007-1">
 </head>
 <body>
   <div class="app-shell">
@@ -32,9 +33,10 @@
         <button class="nav-item" data-view="profit-sku"><i data-lucide="package-search"></i><span>SKU 财务分析</span></button>
         <button class="nav-item" data-view="profit-unsettled"><i data-lucide="hourglass"></i><span>待结算检查</span></button>
         <button class="nav-item" data-view="profit"><i data-lucide="file-input"></i><span>账单导入</span></button>
+        <button class="nav-item" data-view="system-guide"><i data-lucide="book-open"></i><span>系统说明</span></button>
       </nav>
 
-      <div class="source-status" id="source-status">
+      <div class="source-status" id="source-status" role="button" tabindex="0" aria-label="查看数据链路与同步说明">
         <span class="status-dot pending"></span>
         <div><strong>数据链路</strong><small>正在连接</small></div>
         <span class="live-mark">LIVE</span>
@@ -383,6 +385,10 @@
         <article class="panel finance-table-panel"><div class="panel-heading"><div><h2>待处理 SKU 构成</h2><span>平台 SKU ID · 申报金额，不代表最终回款</span></div><label class="search-box"><i data-lucide="search"></i><input id="finance-pending-keyword" type="search" placeholder="搜索 SKU ID 或商品" aria-label="搜索待处理 SKU"></label></div><div class="table-wrap finance-table-scroll"><table><thead><tr><th>店铺</th><th>SKU / 商品</th><th class="num">数量</th><th class="num">申报总额</th><th>金额占比</th></tr></thead><tbody id="profit-unsettled-sku-body"></tbody></table></div></article>
       </section>
 
+      <section class="view system-guide-view" id="view-system-guide" aria-label="系统说明">
+        <div id="system-guide-content"></div>
+      </section>
+
     </main>
   </div>
 
@@ -400,6 +406,7 @@
   <script src="./vendor/lucide.min.js"></script>
   <script src="./finance-core.js?v=20261007"></script>
   <script src="./finance.js?v=20261007"></script>
-  <script src="./app.js?v=20261007"></script>
+  <script src="./system-guide.js?v=20261007-1"></script>
+  <script src="./app.js?v=20261007-1"></script>
 </body>
 </html>
