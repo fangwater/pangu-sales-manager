@@ -32,7 +32,8 @@ type ProfitDailySummaryRow struct {
 	SalesReceiptAmount   float64 `json:"sales_receipt_amount"`
 	FreightReceiptAmount float64 `json:"freight_receipt_amount"`
 
-	// 平台支出（12 列，金额沿用源表符号，支出为负）
+	// 平台费用：面单与平台补偿保留收支方向；违规、拒付及处置的
+	// 支出金额统一按负数汇总，原始源表数值不变。
 	SalesChargebackAmount          float64  `json:"sales_chargeback_amount"`
 	FreightChargebackAmount        float64  `json:"freight_chargeback_amount"`
 	FulfillmentDelayAmount         float64  `json:"fulfillment_delay_amount"`
@@ -53,6 +54,11 @@ type ProfitDailySummaryRow struct {
 	EstimatedSalesAmount  float64 `json:"estimated_sales_amount"`
 	EstimatedSalesMatched int64   `json:"estimated_sales_matched"`
 	EstimatedSalesTotal   int64   `json:"estimated_sales_total"`
+	SettledRows           int64   `json:"settled_rows"`
+	FeeRows               int64   `json:"fee_rows"`
+	KnownFeeBalanceAmount float64 `json:"known_fee_balance_amount"`
+	DisposalFeeAmount     float64 `json:"disposal_fee_amount"`
+	PlatformBalanceAmount float64 `json:"platform_balance_amount"`
 }
 
 type ProfitDailySummaryResponse struct {
@@ -176,6 +182,10 @@ func (s *Store) profitDailySummary(ctx context.Context, timezone, period, shopKe
 	if err != nil {
 		return ProfitDailySummaryResponse{}, err
 	}
+	ledgerCoverage, err := s.queryProfitDailyLedgerCoverage(ctx, timezone, start, end, shopKey)
+	if err != nil {
+		return ProfitDailySummaryResponse{}, err
+	}
 
 	buckets := make(map[string]*ProfitDailySummaryRow)
 	var order []string
@@ -267,12 +277,26 @@ func (s *Store) profitDailySummary(ctx context.Context, timezone, period, shopKe
 	}
 
 	rows := make([]ProfitDailySummaryRow, 0, len(order))
+	for _, coverage := range ledgerCoverage {
+		if row := rowFor(coverage.Date); row != nil {
+			row.SettledRows += coverage.SettledRows
+			row.FeeRows += coverage.FeeRows
+			row.KnownFeeBalanceAmount += coverage.FeeBalance
+			row.DisposalFeeAmount += coverage.DisposalAmount
+			totals.SettledRows += coverage.SettledRows
+			totals.FeeRows += coverage.FeeRows
+			totals.KnownFeeBalanceAmount += coverage.FeeBalance
+			totals.DisposalFeeAmount += coverage.DisposalAmount
+		}
+	}
 	for _, key := range order {
 		row := buckets[key]
+		row.PlatformBalanceAmount = profitPlatformBalance(row.PaybackAmount, row.KnownFeeBalanceAmount)
 		row.RefundTotal = row.RefundOrders + row.SalesChargebacks + row.FreightChargebacks + row.BuyerChargebacks
 		rows = append(rows, *row)
 	}
 	totals.RefundTotal = totals.RefundOrders + totals.SalesChargebacks + totals.FreightChargebacks + totals.BuyerChargebacks
+	totals.PlatformBalanceAmount = profitPlatformBalance(totals.PaybackAmount, totals.KnownFeeBalanceAmount)
 
 	return ProfitDailySummaryResponse{
 		Period: period,
@@ -302,6 +326,8 @@ func (s *Store) queryProfitDataRangeStart(ctx context.Context, location *time.Lo
 			SELECT occurred_at FROM temu_profit_return_label_fees WHERE occurred_at IS NOT NULL AND ($1='' OR shop_key=$1)
 			UNION ALL
 			SELECT accounted_at FROM temu_profit_platform_return_label_fees WHERE accounted_at IS NOT NULL AND ($1='' OR shop_key=$1)
+			UNION ALL
+			SELECT accounted_at FROM temu_profit_disposal_fees WHERE accounted_at IS NOT NULL AND ($1='' OR shop_key=$1)
 		) sources
 	`, shopKey).Scan(&earliest)
 	if err != nil {
@@ -430,7 +456,7 @@ func (s *Store) queryProfitDailySettledFlow(ctx context.Context, timezone string
 
 func (s *Store) queryProfitDailyBuyerChargebacks(ctx context.Context, timezone string, start, end time.Time, shopKey string) ([]profitDailyCountAmount, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT (c.accounted_at AT TIME ZONE $1)::date, COUNT(*), COALESCE(SUM(c.amount), 0)
+		SELECT (c.accounted_at AT TIME ZONE $1)::date, COUNT(*), COALESCE(SUM(-ABS(c.amount)), 0)
 		FROM temu_profit_buyer_chargebacks c
 		WHERE c.accounted_at IS NOT NULL
 		  AND c.accounted_at >= $2 AND c.accounted_at < $3
@@ -455,8 +481,8 @@ func (s *Store) queryProfitDailyBuyerChargebacks(ctx context.Context, timezone s
 func (s *Store) queryProfitDailyFulfillmentViolations(ctx context.Context, timezone string, start, end time.Time, shopKey string) ([]profitDailyViolations, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT (v.accounted_at AT TIME ZONE $1)::date,
-		       COALESCE(SUM(v.amount) FILTER (WHERE v.source_sheet='fulfillment_delay'), 0),
-		       COALESCE(SUM(v.amount) FILTER (WHERE v.source_sheet='fulfillment_false_ship'), 0)
+		       COALESCE(SUM(-ABS(v.amount)) FILTER (WHERE v.source_sheet='fulfillment_delay'), 0),
+		       COALESCE(SUM(-ABS(v.amount)) FILTER (WHERE v.source_sheet='fulfillment_false_ship'), 0)
 		FROM temu_profit_fulfillment_violations v
 		WHERE v.accounted_at IS NOT NULL
 		  AND v.accounted_at >= $2 AND v.accounted_at < $3

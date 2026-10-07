@@ -88,6 +88,9 @@ func TestProfitSKUSummaryRollsUpByPlatformSKU(t *testing.T) {
 	if row.SalesChargebacks != 1 {
 		t.Fatalf("sales chargebacks = %v, want 1", row.SalesChargebacks)
 	}
+	if row.SettledRows != 2 {
+		t.Fatalf("settled rows = %d, want 2", row.SettledRows)
+	}
 	if row.SalesReceiptAmount != 80 || row.SalesChargebackAmount != -8 || row.PaybackAmount != 72 {
 		t.Fatalf("settled amounts = %+v, want receipt 80 chargeback -8 payback 72", row)
 	}

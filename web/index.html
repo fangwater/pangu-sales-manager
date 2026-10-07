@@ -7,6 +7,7 @@
   <title>Pangu 销售管理</title>
   <link rel="stylesheet" href="./app.css">
   <link rel="stylesheet" href="./theme.css">
+  <link rel="stylesheet" href="./finance.css?v=20261007">
 </head>
 <body>
   <div class="app-shell">
@@ -27,10 +28,10 @@
         <button class="nav-item" data-view="orders"><i data-lucide="receipt-text"></i><span>标准订单</span></button>
         <button class="nav-item" data-view="activity-prices"><i data-lucide="circle-dollar-sign"></i><span>活动价格</span></button>
         <button class="nav-item" data-view="sku-prices"><i data-lucide="badge-dollar-sign"></i><span>SKU 价格</span></button>
-        <button class="nav-item" data-view="profit"><i data-lucide="calculator"></i><span>TEMU 利润</span></button>
-        <button class="nav-item" data-view="profit-summary"><i data-lucide="table-properties"></i><span>利润总表</span></button>
-        <button class="nav-item" data-view="profit-sku"><i data-lucide="package-search"></i><span>SKU 利润</span></button>
-        <button class="nav-item" data-view="profit-unsettled"><i data-lucide="hourglass"></i><span>未出账预估</span></button>
+        <button class="nav-item" data-view="profit-summary"><i data-lucide="table-properties"></i><span>财务总览</span></button>
+        <button class="nav-item" data-view="profit-sku"><i data-lucide="package-search"></i><span>SKU 财务分析</span></button>
+        <button class="nav-item" data-view="profit-unsettled"><i data-lucide="hourglass"></i><span>待结算检查</span></button>
+        <button class="nav-item" data-view="profit"><i data-lucide="file-input"></i><span>账单导入</span></button>
       </nav>
 
       <div class="source-status" id="source-status">
@@ -282,7 +283,8 @@
         </article>
       </section>
 
-      <section class="view" id="view-profit">
+      <section class="view finance-view" id="view-profit">
+        <div class="finance-import-intro"><div><span class="finance-eyebrow">DATA SOURCES</span><h2>账单数据中心</h2><p>上传平台导出的账单，保留业务明细并更新财务报表。</p></div><button class="secondary-command" data-open-view="profit-summary">查看财务总览<i data-lucide="arrow-up-right"></i></button></div>
         <section class="activity-summary" aria-label="利润表导入汇总">
           <div><span>已入库行数</span><strong id="profit-metric-rows">--</strong></div>
           <div><span>最近导入文件</span><strong class="compact" id="profit-metric-files">--</strong></div>
@@ -292,7 +294,7 @@
 
         <article class="panel activity-panel">
           <div class="panel-heading activity-heading">
-            <div><h2>上传 TEMU 利润表</h2><span>支持整包 zip 或单张 xlsx，按业务键增量覆盖</span></div>
+            <div><h2>导入 TEMU 财务账单</h2><span>支持整包 zip 或单张 xlsx，按业务键增量覆盖</span></div>
             <button class="icon-command quiet" id="profit-refresh" type="button" title="刷新入库统计" aria-label="刷新入库统计"><i data-lucide="refresh-cw"></i></button>
           </div>
           <form class="profit-upload" id="profit-upload-form">
@@ -333,169 +335,54 @@
         </article>
       </section>
 
-      <section class="view" id="view-profit-summary">
-        <section class="filter-band" id="profit-summary-filters">
-          <div class="segmented" aria-label="统计周期" id="profit-summary-period">
-            <button type="button" class="active" data-summary-period="day">日</button>
-            <button type="button" data-summary-period="week">周</button>
-            <button type="button" data-summary-period="month">月</button>
-          </div>
-          <label class="field compact">
-            <span>店铺</span>
-            <select id="profit-summary-shop">
-              <option value="">全部店铺</option>
-              <option value="panda-homes">Panda Homes</option>
-              <option value="panda-buy">Panda Buy</option>
-            </select>
-          </label>
-          <button class="icon-command quiet" id="profit-summary-refresh" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
-        </section>
-        <article class="panel table-panel full-height">
-          <div class="panel-heading">
-            <div><h2>TEMU 利润总表</h2><span id="profit-summary-range">--</span></div>
-          </div>
-          <p class="profit-hint">毛利润 / 毛利率需要成本数据，暂未接入；税金代扣、税金退回、非订单交易费目前没有任何导入表可用，先占列显示"--"；推断销售额是按活动价格回填的订单单价估算的，回填覆盖率低时数字会明显偏小，覆盖率会标在括号里。</p>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th rowspan="2">日期</th>
-                  <th rowspan="2" class="num">销量</th>
-                  <th rowspan="2" class="num">推断销售额</th>
-                  <th rowspan="2" class="num">退款数量</th>
-                  <th colspan="4">退款数量明细</th>
-                  <th rowspan="2" class="num">回款额</th>
-                  <th colspan="2">平台收入</th>
-                  <th colspan="12">平台支出</th>
-                </tr>
-                <tr>
-                  <th class="num">取消</th>
-                  <th class="num">销售冲回</th>
-                  <th class="num">运费冲回</th>
-                  <th class="num">买家拒付</th>
-                  <th class="num">销售回款</th>
-                  <th class="num">运费回款</th>
-                  <th class="num">销售冲回</th>
-                  <th class="num">运费冲回</th>
-                  <th class="num">履约违规-延迟到货</th>
-                  <th class="num">履约违规-虚假发货</th>
-                  <th class="num">买家拒付</th>
-                  <th class="num">发货面单费</th>
-                  <th class="num">退货面单费-商家仓</th>
-                  <th class="num">退货面单费-第三方仓</th>
-                  <th class="num">退货面单费平台承担</th>
-                  <th class="num">税金代扣</th>
-                  <th class="num">税金退回</th>
-                  <th class="num">非订单交易费</th>
-                </tr>
-              </thead>
-              <tbody id="profit-summary-body"><tr class="empty-row"><td colspan="23">正在读取利润总表</td></tr></tbody>
-              <tfoot id="profit-summary-foot"></tfoot>
-            </table>
-          </div>
+      <section class="view finance-view" id="view-profit-summary">
+        <div class="finance-toolbar">
+          <div class="finance-tabs" aria-label="财务报表"><button class="selected" type="button">财务总览</button><button type="button" data-open-view="profit-sku">SKU 分析</button><button type="button" data-open-view="profit-unsettled">待结算</button></div>
+          <div class="finance-actions"><span class="finance-currency">USD · 上海时区</span><button class="secondary-command" id="finance-export" type="button"><i data-lucide="download"></i>导出报表</button></div>
+        </div>
+        <form class="finance-filter" id="finance-summary-form">
+          <label><span>店铺</span><select id="profit-summary-shop"><option value="">全部 TEMU 店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label>
+          <label><span>时间范围</span><select id="finance-range"><option value="all">全部数据</option><option value="30">近 30 天</option><option value="month">本月</option><option value="previous">上月</option><option value="custom">自定义</option></select></label>
+          <label><span>开始日期</span><input type="date" id="finance-start"></label><span class="finance-date-separator">—</span><label><span>结束日期</span><input type="date" id="finance-end"></label>
+          <div class="segmented" id="profit-summary-period" aria-label="图表粒度"><button type="button" data-summary-period="day">日</button><button type="button" class="active" data-summary-period="week">周</button><button type="button" data-summary-period="month">月</button></div>
+          <button class="icon-command" id="profit-summary-refresh" type="submit" title="刷新报表" aria-label="刷新报表"><i data-lucide="refresh-cw"></i></button>
+        </form>
+        <div class="finance-notice" id="finance-notice" aria-live="polite"><i data-lucide="loader-circle"></i><div><strong>正在检查账单与价格覆盖</strong><p>读取线上财务数据…</p></div></div>
+        <div class="finance-metrics" id="finance-summary-metrics" aria-live="polite"></div>
+        <div class="finance-chart-grid">
+          <article class="panel finance-trend-panel"><div class="panel-heading"><div><h2>回款与平台收支趋势</h2><span id="finance-trend-caption">按到账 / 记账时间统计 · 未扣内部成本</span></div><span class="finance-pill">已出账</span></div><div class="finance-chart"><canvas id="finance-cash-chart" role="img" aria-label="回款和平台收支趋势图"></canvas><div class="finance-chart-empty" id="finance-cash-empty" hidden>所选期间没有已导入的结算 / 费用账单</div></div></article>
+          <article class="panel"><div class="panel-heading"><div><h2>平台支出构成</h2><span>费用与冲回 · 平台补偿单独列示</span></div><span class="finance-pill">USD</span></div><div class="finance-expense-layout"><div class="finance-donut"><canvas id="finance-expense-chart" role="img" aria-label="已导入平台支出构成图"></canvas><div class="finance-chart-empty" id="finance-expense-empty" hidden>暂无费用数据</div></div><div id="finance-expense-legend" class="finance-expense-legend"></div></div></article>
+        </div>
+        <div class="finance-secondary-grid">
+          <article class="panel"><div class="panel-heading"><div><h2>销量与估算覆盖</h2><span>订单数量 · 已定价行占比，未定价行不外推</span></div><span class="finance-pill muted">订单时间</span></div><div class="finance-chart compact"><canvas id="finance-coverage-chart" role="img" aria-label="销量和价格估算覆盖率图"></canvas></div></article>
+          <article class="panel finance-quality-panel"><div class="panel-heading"><div><h2>数据完整性</h2><span>当前店铺的全量数据检查</span></div><i data-lucide="shield-check"></i></div><div id="finance-quality" class="finance-quality-list"></div><button type="button" class="finance-inline-action" data-open-view="profit">管理账单来源<i data-lucide="arrow-up-right"></i></button></article>
+        </div>
+        <article class="panel finance-table-panel">
+          <div class="panel-heading"><div><h2>期间报表</h2><span id="profit-summary-range">—</span></div><div class="finance-actions"><span id="finance-row-count" class="finance-pill muted">—</span><label class="finance-checkbox"><input id="finance-show-detail" type="checkbox">费用明细</label></div></div>
+          <div class="table-wrap finance-table-scroll"><table id="finance-summary-table"><thead id="finance-summary-head"></thead><tbody id="profit-summary-body"></tbody><tfoot id="profit-summary-foot"></tfoot></table></div>
+          <div class="finance-table-note">“—”表示缺少账单或价格，不代表零收入。销售冲回、运费冲回按流水笔数列示；不合并为退款件数。内部成本、税费尚未接入。</div>
         </article>
+        <details class="finance-methods"><summary><i data-lucide="book-open"></i>报表口径与 Word 说明核对<span>数据来源 · 已实现 · 待完善</span><i data-lucide="chevron-down"></i></summary><div class="finance-methods-body"><div><strong>结算回款</strong><p>以结算流水为基准，按流水 ID 去重。聚合账单用于核对，不再次累加；销售及运费冲回来自结算流水，Word 中“履约违规 2”的引用需修正。</p></div><div><strong>平台收支净额</strong><p>结算净额加已导入费用收支，包含面单、违规、拒付、处置及平台退货补偿。采购、头程、仓储与包装成本未接入，毛利和毛利率暂不可计算。</p></div><div><strong>订单与费用归因</strong><p>订单日期目前使用首次抓取时间，费用使用到账或记账时间。包裹、运单到订单 / SKU 的完整归因尚未完成，无法直接比较同一订单的收入和费用。</p></div><div><strong>待结算回补</strong><p>当前仅检查待处理与已到账数据的重叠，不自动核销。需进一步区分部分结算与全部结算；折后回款列的含义也需确认。</p></div></div></details>
       </section>
 
-      <section class="view" id="view-profit-sku">
-        <section class="filter-band" id="profit-sku-filters">
-          <label class="field compact">
-            <span>起始日期</span>
-            <input type="date" id="profit-sku-start">
-          </label>
-          <label class="field compact">
-            <span>结束日期</span>
-            <input type="date" id="profit-sku-end">
-          </label>
-          <label class="field compact">
-            <span>店铺</span>
-            <select id="profit-sku-shop">
-              <option value="">全部店铺</option>
-              <option value="panda-homes">Panda Homes</option>
-              <option value="panda-buy">Panda Buy</option>
-            </select>
-          </label>
-          <button class="primary-command" id="profit-sku-search" type="button"><i data-lucide="search"></i>查询</button>
-          <button class="icon-command quiet" id="profit-sku-refresh" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
-        </section>
-        <article class="panel table-panel full-height">
-          <div class="panel-heading">
-            <div><h2>SKU 利润</h2><span id="profit-sku-range">--</span></div>
-          </div>
-          <p class="profit-hint">履约违规、买家拒付、面单费类没有 SKU 归因（源表只有包裹号/运单号/PO号/订单号），只能在"利润总表"看店铺级汇总，这里看不到。</p>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th class="num">销量</th>
-                  <th class="num">推断销售额</th>
-                  <th class="num">取消数</th>
-                  <th class="num">销售冲回</th>
-                  <th class="num">销售冲回金额</th>
-                  <th class="num">运费冲回</th>
-                  <th class="num">运费冲回金额</th>
-                  <th class="num">销售回款</th>
-                  <th class="num">运费回款</th>
-                  <th class="num">回款额</th>
-                </tr>
-              </thead>
-              <tbody id="profit-sku-body"><tr class="empty-row"><td colspan="11">请选择日期区间后查询</td></tr></tbody>
-            </table>
-          </div>
-        </article>
+      <section class="view finance-view" id="view-profit-sku">
+        <div class="finance-toolbar"><div class="finance-tabs"><button type="button" data-open-view="profit-summary">财务总览</button><button class="selected" type="button">SKU 分析</button><button type="button" data-open-view="profit-unsettled">待结算</button></div><button class="secondary-command" id="finance-sku-export" type="button"><i data-lucide="download"></i>导出 SKU</button></div>
+        <form class="finance-filter" id="finance-sku-form"><label><span>店铺</span><select id="profit-sku-shop"><option value="">全部 TEMU 店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label><label><span>开始日期</span><input type="date" id="profit-sku-start"></label><span class="finance-date-separator">—</span><label><span>结束日期</span><input type="date" id="profit-sku-end"></label><button class="primary-command" id="profit-sku-search" type="submit"><i data-lucide="search"></i>查询</button><button class="icon-command" id="profit-sku-refresh" type="button" title="刷新 SKU 报表" aria-label="刷新 SKU 报表"><i data-lucide="refresh-cw"></i></button></form>
+        <div class="finance-notice" id="finance-sku-notice" aria-live="polite"></div>
+        <div class="finance-metrics" id="finance-sku-metrics"></div>
+        <div class="finance-chart-grid"><article class="panel"><div class="panel-heading"><div><h2>SKU 销售回款排名</h2><span>前 10 名 · 按已到账销售回款</span></div><span class="finance-pill">USD</span></div><div class="finance-chart"><canvas id="finance-sku-chart" role="img" aria-label="SKU销售回款排名"></canvas><div class="finance-chart-empty" id="finance-sku-empty" hidden>所选期间没有已到账销售回款</div></div></article><article class="panel"><div class="panel-heading"><div><h2>商品价格覆盖</h2><span>所选期间的订单行</span></div></div><div class="finance-coverage-card" id="finance-sku-coverage"></div></article></div>
+        <article class="panel finance-table-panel"><div class="panel-heading"><div><h2>SKU 财务明细</h2><span id="profit-sku-range">—</span></div><div class="finance-actions"><label class="search-box"><i data-lucide="search"></i><input id="finance-sku-keyword" type="search" placeholder="搜索 SKU 或商品名称" aria-label="搜索 SKU 或商品名称"></label><select id="finance-sku-sort" aria-label="SKU 排序"><option value="sales_receipt_amount">销售回款 ↓</option><option value="units">销量 ↓</option><option value="estimated_sales_amount">估算销售额 ↓</option><option value="coverage">覆盖率 ↑</option></select></div></div><div class="table-wrap finance-table-scroll"><table><thead><tr><th>SKU / 商品</th><th class="num">销量</th><th class="num">估算销售额</th><th>价格覆盖</th><th class="num">销售回款</th><th class="num">销售冲回</th><th class="num">已归因结算净额</th><th class="num">取消订单行</th></tr></thead><tbody id="profit-sku-body"></tbody></table></div><div class="finance-table-note">运费与订单级费用尚未完整分摊至 SKU，因此“已归因结算净额”不等同店铺回款或 SKU 利润。</div></article>
       </section>
 
-      <section class="view" id="view-profit-unsettled">
-        <section class="filter-band" id="profit-unsettled-filters">
-          <label class="field compact">
-            <span>店铺</span>
-            <select id="profit-unsettled-shop">
-              <option value="">全部店铺</option>
-              <option value="panda-homes">Panda Homes</option>
-              <option value="panda-buy">Panda Buy</option>
-            </select>
-          </label>
-          <button class="icon-command quiet" id="profit-unsettled-refresh" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
-        </section>
-        <p class="profit-hint">这里全是预估——"结算数据-待处理款项"和"发货面单费-待出账"两张源表都没有日期字段，没法并入利润总表按天展示。等真实出账数据导入后，利润总表会自动用实际数字覆盖这里的预估。SKU 明细用的是 TEMU 内部数字 sku_id，跟"SKU 利润"页面用的 platform_sku 不是同一套编码，两边对不上号。</p>
-        <article class="panel table-panel">
-          <div class="panel-heading"><div><h2>按店铺预估</h2></div></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>店铺</th>
-                  <th class="num">销售回款</th>
-                  <th class="num">销售回款(已减优惠)</th>
-                  <th class="num">销售冲回</th>
-                  <th class="num">运费回款</th>
-                  <th class="num">运费回款(已减优惠)</th>
-                  <th class="num">运费冲回</th>
-                  <th class="num">待出账发货面单费</th>
-                </tr>
-              </thead>
-              <tbody id="profit-unsettled-shop-body"><tr class="empty-row"><td colspan="8">正在读取未出账预估</td></tr></tbody>
-            </table>
-          </div>
-        </article>
-        <article class="panel table-panel full-height">
-          <div class="panel-heading"><div><h2>待处理款项 SKU 明细</h2></div></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>店铺</th>
-                  <th>SKU ID</th>
-                  <th>商品名</th>
-                  <th class="num">预估件数</th>
-                  <th class="num">预估申报总额</th>
-                </tr>
-              </thead>
-              <tbody id="profit-unsettled-sku-body"><tr class="empty-row"><td colspan="5">正在读取未出账预估</td></tr></tbody>
-            </table>
-          </div>
-        </article>
+      <section class="view finance-view" id="view-profit-unsettled">
+        <div class="finance-toolbar"><div class="finance-tabs"><button type="button" data-open-view="profit-summary">财务总览</button><button type="button" data-open-view="profit-sku">SKU 分析</button><button class="selected" type="button">待结算</button></div><button class="secondary-command" id="finance-pending-export" type="button"><i data-lucide="download"></i>导出待结算</button></div>
+        <div class="finance-filter"><label><span>店铺</span><select id="profit-unsettled-shop"><option value="">全部 TEMU 店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label><span class="finance-filter-note">导入快照 · 无日期分桶</span><button class="icon-command" id="profit-unsettled-refresh" type="button" title="刷新待结算检查" aria-label="刷新待结算检查"><i data-lucide="refresh-cw"></i></button></div>
+        <div class="finance-notice" id="finance-pending-notice" aria-live="polite"></div>
+        <div class="finance-metrics" id="finance-pending-metrics"></div>
+        <article class="panel finance-table-panel"><div class="panel-heading"><div><h2>待回款与核对项</h2><span>原始待处理快照 · 重叠金额单独标识</span></div><span class="finance-pill warning">尚未自动核销</span></div><div class="table-wrap finance-table-scroll"><table><thead><tr><th>店铺</th><th class="num">销售回款</th><th class="num">销售冲回</th><th class="num">运费回款</th><th class="num">运费冲回</th><th class="num">折后回款列</th><th class="num">待出账面单费</th><th class="num">重叠 PO</th><th class="num">重叠待回款</th></tr></thead><tbody id="profit-unsettled-shop-body"></tbody></table></div><div class="finance-table-note">回款与面单费尚未按订单对齐，不能直接相减为利润。已到账重叠可能涉及部分结算，需核对后回补。</div></article>
+        <article class="panel finance-table-panel"><div class="panel-heading"><div><h2>待处理 SKU 构成</h2><span>平台 SKU ID · 申报金额，不代表最终回款</span></div><label class="search-box"><i data-lucide="search"></i><input id="finance-pending-keyword" type="search" placeholder="搜索 SKU ID 或商品" aria-label="搜索待处理 SKU"></label></div><div class="table-wrap finance-table-scroll"><table><thead><tr><th>店铺</th><th>SKU / 商品</th><th class="num">数量</th><th class="num">申报总额</th><th>金额占比</th></tr></thead><tbody id="profit-unsettled-sku-body"></tbody></table></div></article>
       </section>
+
     </main>
   </div>
 
@@ -511,6 +398,8 @@
 
   <script src="./vendor/chart.umd.min.js"></script>
   <script src="./vendor/lucide.min.js"></script>
-  <script src="./app.js"></script>
+  <script src="./finance-core.js?v=20261007"></script>
+  <script src="./finance.js?v=20261007"></script>
+  <script src="./app.js?v=20261007"></script>
 </body>
 </html>

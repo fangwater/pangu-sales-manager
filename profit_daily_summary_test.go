@@ -26,6 +26,7 @@ func TestProfitDailySummaryAggregatesAndNetsChargebacks(t *testing.T) {
 		store.db.ExecContext(ctx, `DELETE FROM temu_profit_shipping_label_fees WHERE shop_key=$1`, shopKey)
 		store.db.ExecContext(ctx, `DELETE FROM temu_profit_return_label_fees WHERE shop_key=$1`, shopKey)
 		store.db.ExecContext(ctx, `DELETE FROM temu_profit_platform_return_label_fees WHERE shop_key=$1`, shopKey)
+		store.db.ExecContext(ctx, `DELETE FROM temu_profit_disposal_fees WHERE shop_key=$1`, shopKey)
 	}
 	cleanup()
 	defer cleanup()
@@ -112,6 +113,12 @@ func TestProfitDailySummaryAggregatesAndNetsChargebacks(t *testing.T) {
 	`, shopKey, now); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO temu_profit_disposal_fees (shop_key,sku_id,tracking_no,destroy_fee,accounted_at)
+		VALUES ($1,555,'PS-DISPOSAL-1',8,$2)
+	`, shopKey, now); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := store.profitDailySummary(ctx, "UTC", "day", shopKey)
 	if err != nil {
@@ -160,6 +167,12 @@ func TestProfitDailySummaryAggregatesAndNetsChargebacks(t *testing.T) {
 	}
 	if totals.TaxWithheldAmount != nil || totals.TaxRefundAmount != nil || totals.NonOrderTransactionFeeAmount != nil {
 		t.Fatalf("tax/non-order fee columns should stay nil (no data source), got %+v", totals)
+	}
+	if totals.DisposalFeeAmount != -8 || totals.KnownFeeBalanceAmount != -41 || totals.PlatformBalanceAmount != 84 {
+		t.Fatalf("known ledger balance = %+v, want disposal -8, fees -41 and platform balance 84", totals)
+	}
+	if totals.SettledRows != 4 || totals.FeeRows != 8 {
+		t.Fatalf("source counts = %d/%d, want 4/8", totals.SettledRows, totals.FeeRows)
 	}
 	if totals.EstimatedSalesAmount != 37.5 || totals.EstimatedSalesMatched != 1 || totals.EstimatedSalesTotal != 1 {
 		t.Fatalf("estimated sales = amount:%v matched:%d total:%d, want 37.5/1/1", totals.EstimatedSalesAmount, totals.EstimatedSalesMatched, totals.EstimatedSalesTotal)

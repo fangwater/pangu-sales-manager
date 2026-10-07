@@ -26,6 +26,7 @@ type ProfitSKUSummaryRow struct {
 	SalesChargebackAmount   float64 `json:"sales_chargeback_amount"`
 	FreightChargebackAmount float64 `json:"freight_chargeback_amount"`
 	PaybackAmount           float64 `json:"payback_amount"`
+	SettledRows             int64   `json:"settled_rows"`
 
 	EstimatedSalesAmount  float64 `json:"estimated_sales_amount"`
 	EstimatedSalesMatched int64   `json:"estimated_sales_matched"`
@@ -61,6 +62,7 @@ type profitSKUSettled struct {
 	FreightReceiptAmount    float64
 	SalesChargebackAmount   float64
 	FreightChargebackAmount float64
+	SettledRows             int64
 }
 
 // profitSKUSummary rolls TEMU sales/refund/settlement data up by platform SKU
@@ -109,6 +111,7 @@ func (s *Store) profitSKUSummary(ctx context.Context, timezone string, start, en
 		row.SalesChargebacks += sf.SalesChargebacks
 		row.FreightChargebacks += sf.FreightChargebacks
 		row.PaybackAmount += sf.PaybackAmount
+		row.SettledRows += sf.SettledRows
 		row.SalesReceiptAmount += sf.SalesReceiptAmount
 		row.FreightReceiptAmount += sf.FreightReceiptAmount
 		row.SalesChargebackAmount += sf.SalesChargebackAmount
@@ -193,7 +196,7 @@ func (s *Store) queryProfitSKUSettledFlow(ctx context.Context, start, end time.T
 		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='销售回款'), 0),
 		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='运费回款'), 0),
 		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='销售冲回'), 0),
-		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='运费冲回'), 0)
+		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='运费冲回'), 0), COUNT(*)
 		FROM temu_profit_settled_flows f
 		WHERE f.sku_ext_code <> '' AND f.received_at IS NOT NULL
 		  AND f.received_at >= $1 AND f.received_at < $2
@@ -208,7 +211,7 @@ func (s *Store) queryProfitSKUSettledFlow(ctx context.Context, start, end time.T
 	for rows.Next() {
 		var row profitSKUSettled
 		if err := rows.Scan(&row.SKUExtCode, &row.SKUName, &row.SalesChargebacks, &row.FreightChargebacks, &row.PaybackAmount,
-			&row.SalesReceiptAmount, &row.FreightReceiptAmount, &row.SalesChargebackAmount, &row.FreightChargebackAmount); err != nil {
+			&row.SalesReceiptAmount, &row.FreightReceiptAmount, &row.SalesChargebackAmount, &row.FreightChargebackAmount, &row.SettledRows); err != nil {
 			return nil, err
 		}
 		result = append(result, row)
