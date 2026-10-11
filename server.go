@@ -52,6 +52,7 @@ func newAPIServer(store *Store, syncer *Syncer, marketingSyncer *marketing.Synce
 func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /api/restock/snapshot", s.restockSnapshot)
 	mux.HandleFunc("GET /api/dashboard", s.dashboard)
 	mux.HandleFunc("GET /api/mappings", s.mappings)
 	mux.HandleFunc("PATCH /api/mappings/{platform}/{shop}/{sku}", s.updateMapping)
