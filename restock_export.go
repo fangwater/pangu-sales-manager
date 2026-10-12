@@ -147,10 +147,24 @@ func (s *APIServer) restockSnapshot(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "restock mapping quality", err)
 		return
 	}
+	var syncState map[string]any
+	var syncStatus string
+	var syncStarted time.Time
+	var syncCompleted, syncSucceeded sql.NullTime
+	err = tx.QueryRowContext(r.Context(), `SELECT status,started_at,completed_at,
+ (SELECT MAX(completed_at) FROM sync_runs WHERE status='succeeded')
+ FROM sync_runs ORDER BY id DESC LIMIT 1`).Scan(&syncStatus, &syncStarted, &syncCompleted, &syncSucceeded)
+	if err != nil && err != sql.ErrNoRows {
+		s.internalError(w, "restock sync status", err)
+		return
+	}
+	if err == nil {
+		syncState = map[string]any{"status": syncStatus, "started_at": syncStarted, "completed_at": syncCompleted.Time, "last_success_at": syncSucceeded.Time}
+	}
 	if err = tx.Commit(); err != nil {
 		s.internalError(w, "restock commit", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{"version": version, "unit_basis": "order_quantity", "points": points, "sources": sources, "shops": shops,
-		"start": start.Format("2006-01-02"), "end": end.AddDate(0, 0, -1).Format("2006-01-02"), "timezone": s.timezone, "generated_at": now, "inferred_mappings": inferred, "unmapped_mappings": unmapped}})
+		"start": start.Format("2006-01-02"), "end": end.AddDate(0, 0, -1).Format("2006-01-02"), "timezone": s.timezone, "generated_at": now, "inferred_mappings": inferred, "unmapped_mappings": unmapped, "sync": syncState}})
 }

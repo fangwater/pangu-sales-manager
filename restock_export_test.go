@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -196,5 +197,53 @@ func TestRestockSnapshotSeparatesSoldPackFromWarehouseDemand(t *testing.T) {
 	server.restockSnapshot(invalid, httptest.NewRequest("GET", "/api/restock/snapshot?version=4", nil))
 	if invalid.Code != 400 {
 		t.Fatalf("invalid version accepted: %d", invalid.Code)
+	}
+}
+
+func TestRestockSnapshotReportsSyncFailureWithoutExposingRawError(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("isolated TEST_DATABASE_URL required")
+	}
+	ctx := context.Background()
+	store, err := openStore(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	id, err := store.beginSync(ctx, "incremental")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.db.Exec(`DELETE FROM sync_runs WHERE id=$1`, id)
+	if err = store.finishSync(ctx, id, "failed", SyncCounts{}, fmt.Errorf("private diagnostic")); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	server := &APIServer{store: store, timezone: "Asia/Shanghai", logger: slog.Default()}
+	server.restockSnapshot(response, httptest.NewRequest("GET", "/api/restock/snapshot?days=1", nil))
+	var envelope struct {
+		Data struct {
+			Sync struct {
+				Status string `json:"status"`
+			} `json:"sync"`
+		} `json:"data"`
+	}
+	if err = json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != 200 || envelope.Data.Sync.Status != "failed" {
+		t.Fatalf("sync health missing: %s", response.Body.String())
+	}
+	var decoded map[string]any
+	json.Unmarshal(response.Body.Bytes(), &decoded)
+	encoded, _ := json.Marshal(decoded["data"].(map[string]any)["sync"])
+	if string(encoded) == "null" {
+		t.Fatal("missing sync state")
+	}
+	for _, b := range []string{"private diagnostic", "error_message"} {
+		if bytes.Contains(encoded, []byte(b)) {
+			t.Fatal("private error leaked")
+		}
 	}
 }
