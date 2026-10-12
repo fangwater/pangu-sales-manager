@@ -19,7 +19,11 @@ import (
 
 func main() {
 	syncOnce := flag.Bool("sync-once", false, "synchronize all source data and exit")
+	fullSync := flag.Bool("full-sync", false, "force complete source history with -sync-once")
 	flag.Parse()
+	if *fullSync && !*syncOnce {
+		panic("-full-sync requires -sync-once")
+	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	config, err := loadConfig()
@@ -38,6 +42,7 @@ func main() {
 	defer store.Close()
 	syncer := newSyncer(config, store, logger)
 	defer syncer.Close()
+	syncer.forceFull = *fullSync
 	var marketingSyncer *marketing.Syncer
 	var marketingObserver *marketing.ActivityObserver
 	if config.MarketingEnabled {

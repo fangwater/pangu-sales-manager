@@ -31,6 +31,7 @@ type Syncer struct {
 	xlwmsClient *xlwms.Client
 	logger      *slog.Logger
 	running     atomic.Bool
+	forceFull   bool
 }
 
 func newSyncer(config Config, store *Store, logger *slog.Logger) *Syncer {
@@ -64,7 +65,10 @@ func (s *Syncer) Run(ctx context.Context) (counts SyncCounts, err error) {
 	}
 	defer s.running.Store(false)
 
-	plan, err := s.store.planSync(ctx)
+	plan := SyncPlan{Mode: "full", Since: make(map[string]time.Time)}
+	if !s.forceFull {
+		plan, err = s.store.planSync(ctx)
+	}
 	if err != nil {
 		return counts, fmt.Errorf("plan sync: %w", err)
 	}
@@ -308,118 +312,6 @@ const sheinLineQuery = `
 		ORDER BY e.order_no, platform_sku
 	`
 
-func (s *Syncer) readTemu(ctx context.Context, shopKey, schema string, inventory []InventoryRow, since time.Time) ([]SourceOrder, []SourceLine, error) {
-	if schema != "temu_panda_homes" && schema != "temu_panda_buy" {
-		return nil, nil, errors.New("unsupported Temu schema")
-	}
-	if err := s.temu.PingContext(ctx); err != nil {
-		return nil, nil, err
-	}
-	orderQuery := fmt.Sprintf(`
-		SELECT o.parent_order_sn, o.parent_order_status,
-		       o.first_seen_at, o.first_seen_at, o.last_seen_at,
-		       COALESCE(map.oms_warehouse_code, choice.selected_oms_warehouse_key, ''),
-		       o.raw_payload
-		FROM %s.temu_orders o
-		LEFT JOIN LATERAL (
-			SELECT selected_oms_warehouse_key
-			FROM %s.temu_label_purchase_choices c
-			WHERE c.parent_order_sn=o.parent_order_sn
-			ORDER BY c.purchased_at DESC LIMIT 1
-		) choice ON true
-		LEFT JOIN public.temu_warehouse_mappings map
-		  ON map.oms_warehouse_key=choice.selected_oms_warehouse_key
-		WHERE ($1::timestamptz IS NULL OR o.last_seen_at >= $1)
-		ORDER BY o.first_seen_at
-	`, schema, schema)
-	rows, err := s.temu.QueryContext(ctx, orderQuery, nullableTime(since))
-	if err != nil {
-		return nil, nil, err
-	}
-	var orders []SourceOrder
-	for rows.Next() {
-		var order SourceOrder
-		var status int
-		var raw []byte
-		order.Platform = "temu"
-		order.ShopKey = shopKey
-		order.OccurredAtSource = "first_seen"
-		order.SalesEligible = true
-		if err := rows.Scan(&order.OrderNo, &status, &order.OccurredAt,
-			&order.FirstSeenAt, &order.UpdatedAt, &order.WarehouseCode, &raw); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		order.SourceStatus = fmt.Sprintf("%d", status)
-		order.NormalizedStatus = temuStatus(status)
-		order.SalesEligible = status != 5 && status != 6
-		order.RawPayload = json.RawMessage(raw)
-		orders = append(orders, order)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, nil, err
-	}
-
-	lineQuery := fmt.Sprintf(`
-		SELECT l.parent_order_sn, l.order_sn, l.ext_code,
-		       COALESCE(l.goods_name,''), COALESCE(l.spec,''), l.quantity,
-		       COALESCE(map.oms_warehouse_code, choice.selected_oms_warehouse_key, ''),
-		       l.raw_payload
-		FROM %s.temu_order_lines l
-		JOIN %s.temu_orders source_order ON source_order.parent_order_sn=l.parent_order_sn
-		LEFT JOIN LATERAL (
-			SELECT selected_oms_warehouse_key
-			FROM %s.temu_label_purchase_choices c
-			WHERE c.parent_order_sn=l.parent_order_sn
-			ORDER BY c.purchased_at DESC LIMIT 1
-		) choice ON true
-		LEFT JOIN public.temu_warehouse_mappings map
-		  ON map.oms_warehouse_key=choice.selected_oms_warehouse_key
-		WHERE BTRIM(COALESCE(l.ext_code,'')) <> ''
-		  AND ($1::timestamptz IS NULL OR source_order.last_seen_at >= $1)
-		ORDER BY l.parent_order_sn, l.order_sn
-	`, schema, schema, schema)
-	lineRows, err := s.temu.QueryContext(ctx, lineQuery, nullableTime(since))
-	if err != nil {
-		return nil, nil, err
-	}
-	defer lineRows.Close()
-	var lines []SourceLine
-	for lineRows.Next() {
-		var line SourceLine
-		var raw []byte
-		line.Platform = "temu"
-		line.ShopKey = shopKey
-		line.ConversionFactor = 1
-		line.MappingSource = "platform_ext_code"
-		line.MappingStatus = "identity"
-		if err := lineRows.Scan(&line.OrderNo, &line.SourceLineKey, &line.PlatformSKU,
-			&line.ProductName, &line.VariantName, &line.Quantity,
-			&line.WarehouseCode, &raw); err != nil {
-			return nil, nil, err
-		}
-		line.SuggestedSKU = line.PlatformSKU
-		if normalizedSKU, ok := matchWarehouseSKU(line.SuggestedSKU, inventory); ok {
-			line.SuggestedSKU = normalizedSKU
-			if !strings.EqualFold(normalizedSKU, line.PlatformSKU) {
-				line.MappingSource = "xlwms_sku_normalized"
-				line.MappingStatus = "inferred"
-			}
-		}
-		line.RawPayload = json.RawMessage(raw)
-		var productRefs struct {
-			ProductList []struct {
-				ProductSKUID int64 `json:"productSkuId"`
-			} `json:"productList"`
-		}
-		if json.Unmarshal(raw, &productRefs) == nil && len(productRefs.ProductList) > 0 {
-			line.ProductSKUID = productRefs.ProductList[0].ProductSKUID
-		}
-		lines = append(lines, line)
-	}
-	return orders, lines, lineRows.Err()
-}
-
 func matchWarehouseCode(source string, warehouses []Warehouse) string {
 	normalized := strings.ToUpper(strings.TrimSpace(source))
 	if normalized == "" {
@@ -485,12 +377,14 @@ func temuStatus(status int) string {
 	switch status {
 	case 2:
 		return "pending_shipping"
+	case 1:
+		return "pending_processing"
 	case 3:
-		return "shipped"
-	case 4:
-		return "delivered"
-	case 5:
 		return "cancelled"
+	case 4:
+		return "shipped"
+	case 5:
+		return "delivered"
 	default:
 		return fmt.Sprintf("status_%d", status)
 	}

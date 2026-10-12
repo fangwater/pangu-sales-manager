@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lib/pq"
 	"strings"
 	"time"
 )
@@ -228,6 +229,26 @@ func (s *Store) upsertSourceBatch(ctx context.Context, orders []SourceOrder, lin
 			return 0, 0, fmt.Errorf("upsert %s line %s: %w", line.Platform, line.SourceLineKey, err)
 		}
 		lineCount++
+	}
+
+	// Full Temu snapshots replace the active line set; preserve line IDs for finance history.
+	activeLines := map[string][]string{}
+	for _, line := range lines {
+		key := orderKey(line.Platform, line.ShopKey, line.OrderNo)
+		activeLines[key] = append(activeLines[key], line.SourceLineKey)
+	}
+	for _, order := range orders {
+		if order.Platform != "temu" {
+			continue
+		}
+		key := orderKey(order.Platform, order.ShopKey, order.OrderNo)
+		keys := activeLines[key]
+		if keys == nil {
+			keys = []string{}
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE normalized_order_lines SET quantity=0,warehouse_quantity=0,synced_at=now() WHERE order_id=$1 AND NOT(source_line_key=ANY($2::text[])) AND (quantity<>0 OR warehouse_quantity<>0)`, orderIDs[key], pq.Array(keys)); err != nil {
+			return 0, 0, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
