@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,5 +72,42 @@ func TestTemuFullSnapshotRemovesStaleLinesAndPreservesMapping(t *testing.T) {
 	}
 	if qty != 4 || warehouse != 8 || n != 2 {
 		t.Fatalf("snapshot/idempotency: qty=%v warehouse=%v lines=%d", qty, warehouse, n)
+	}
+}
+
+func TestInventoryStockTypesAggregateIntoOneWarehouseSKU(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("isolated TEST_DATABASE_URL required")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	query := `WITH fixtures(wh_code,wh_name,sku,total_amount,available_amount,lock_amount,transport_amount,statistic_date,last_seen_at,inventory_kind) AS (VALUES
+ ('NY','NY','sku',10,8,2,0,NULL::date,now(),'integrated'),
+ ('NY','NY','sku',2,0,2,0,NULL::date,now(),'integrated'),
+ ('NY','NY','sku',999,999,0,0,NULL::date,now(),'movement')) ` + strings.ReplaceAll(xlwmsInventorySQL, "public.xlwms_inventory_records", "fixtures")
+	rows, err := db.Query(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var wh, name, sku string
+		var total, available, locked, transit float64
+		var date, updated sql.NullTime
+		if err = rows.Scan(&wh, &name, &sku, &total, &available, &locked, &transit, &date, &updated); err != nil {
+			t.Fatal(err)
+		}
+		count++
+		if total != 12 || available != 8 || locked != 4 {
+			t.Fatalf("wrong aggregation: %v %v %v", total, available, locked)
+		}
+	}
+	if rows.Err() != nil || count != 1 {
+		t.Fatalf("rows=%d err=%v", count, rows.Err())
 	}
 }

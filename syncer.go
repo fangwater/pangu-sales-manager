@@ -139,6 +139,16 @@ func (s *Syncer) Running() bool {
 	return s.running.Load()
 }
 
+// A warehouse/SKU may have multiple stock-type records in the source.
+const xlwmsInventorySQL = `
+ SELECT wh_code, MAX(wh_name), sku,
+        COALESCE(SUM(total_amount),0), COALESCE(SUM(available_amount),0),
+        COALESCE(SUM(lock_amount),0), COALESCE(SUM(transport_amount),0),
+        MAX(statistic_date), MAX(last_seen_at)
+ FROM public.xlwms_inventory_records
+ WHERE inventory_kind='integrated' AND BTRIM(sku)<>''
+ GROUP BY wh_code,sku ORDER BY wh_code,sku`
+
 func (s *Syncer) readXLWMS(ctx context.Context) ([]Warehouse, []InventoryRow, error) {
 	if err := s.xlwms.PingContext(ctx); err != nil {
 		return nil, nil, err
@@ -164,15 +174,7 @@ func (s *Syncer) readXLWMS(ctx context.Context) ([]Warehouse, []InventoryRow, er
 		return nil, nil, err
 	}
 
-	rows, err := s.xlwms.QueryContext(ctx, `
-		SELECT wh_code, wh_name, sku,
-		       COALESCE(total_amount, 0), COALESCE(available_amount, 0),
-		       COALESCE(lock_amount, 0), COALESCE(transport_amount, 0),
-		       statistic_date, last_seen_at
-		FROM public.xlwms_inventory_records
-		WHERE inventory_kind='integrated' AND BTRIM(sku) <> ''
-		ORDER BY wh_code, sku
-	`)
+	rows, err := s.xlwms.QueryContext(ctx, xlwmsInventorySQL)
 	if err != nil {
 		return nil, nil, err
 	}
