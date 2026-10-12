@@ -57,3 +57,7 @@ SKU 价格按区间增量保存。SKC 为 `confirmed` 时使用其 `active_enrol
 TEMU 利润表按 `TEMU利润计算/*.xlsx` 全列入库。发货/退货面单费按文件名区分已出账、待出账、商家仓、第三方仓；账务明细按工作表拆到拒付、履约违规、平台承担面单、处置费和结算流水。再次上传同一业务键会覆盖金额、状态和时间，未出现的旧行保留。
 
 历史查询的 `match_method` 包括 `exact_interval`、`nearest_after`、`nearest_before` 和 `unmatched`。区间外推断始终返回 `warning` 并附带时间距离，不会伪装成准确成交价。订单补全同时保留 `price_source`、`match_method`、订单时间口径和匹配区间，便于审计。
+
+### Restock snapshot identities
+
+`GET /api/restock/snapshot?days=730&version=3` exports the sold SKU (`sales_sku`) separately from the fulfillment SKU (`sku`), with `units`, `conversion_factor` and `warehouse_units`. Aggregate sales by `sales_sku` and procurement demand by `sku`; never attribute unconverted quantities from a different pack to the warehouse SKU's sales. Temu uses its original `ext_code`; Shein's 1:1 opaque aliases retain the existing canonical identity, while non-1:1 conversions retain the source identity. The default version 2 response remains available for existing consumers. Both versions exclude ineligible/cancelled/refunded orders and retain the existing date/status semantics.
