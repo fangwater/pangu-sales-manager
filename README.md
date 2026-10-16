@@ -10,6 +10,7 @@ Pangu 销售管理系统将 TEMU、SHEIN 订单与 XLWMS 仓库库存同步到�
 - `warehouse_inventory`：XLWMS `integrated` 库存快照，按仓库与仓库 SKU 存储。
 - SHEIN 使用平台下单时间；TEMU 当前源表没有下单时间，使用 `first_seen_at` 并在 `occurred_at_source` 明确记录。
 - 退款/取消订单不进入销量统计，原始订单仍保留在标准订单库。
+- SHEIN 同时按商品状态剔除部分退款：优先使用 `newGoodsStatus=6`，新状态缺失时使用旧字段 `goodsStatus=3`。同一订单/SKU 的 `quantity` 是未退款商品件数，仓库数量按此换算；全部退款的 SKU 保留零数量行。原始商品列表、原始件数和退款件数保留在订单行 `raw_payload.items/original_quantity/refunded_quantity`。每次同步覆盖当前结果，不累积扣减。历史修复通过存量订单完整同步重算。
 
 ## 预测
 

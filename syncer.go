@@ -287,7 +287,11 @@ func (s *Syncer) readShein(ctx context.Context, warehouses []Warehouse, inventor
 
 const sheinLineQuery = `
 		WITH expanded AS (
-			SELECT o.order_no, item
+			SELECT o.order_no, item,
+			       CASE WHEN NULLIF(BTRIM(item->>'newGoodsStatus'),'') IS NOT NULL
+			            THEN BTRIM(item->>'newGoodsStatus')='6'
+			            ELSE COALESCE(BTRIM(item->>'goodsStatus'),'')='3'
+			       END AS refunded
 			FROM shein_beauty_hangers_home.shein_orders o
 			CROSS JOIN LATERAL jsonb_array_elements(
 				CASE WHEN jsonb_typeof(o.detail_payload->'orderGoodsInfoList')='array'
@@ -301,13 +305,15 @@ const sheinLineQuery = `
 		       MAX(COALESCE(e.item->>'goodsTitle','')),
 		       MAX(COALESCE(e.item->>'sellerSku','')),
 		       MAX(COALESCE(e.item->>'warehouseName','')),
-		       COUNT(*)::numeric,
+		       COUNT(*) FILTER (WHERE NOT e.refunded)::numeric,
 		       1::numeric,
 		       'seller_sku_fallback',
 		       'inferred',
 		       MAX(NULLIF(e.item->>'sellerCurrencyPrice','')::numeric),
 		       MAX(COALESCE(e.item->>'saleCurrency','')),
-		       jsonb_build_object('items',jsonb_agg(e.item))
+		       jsonb_build_object('items',jsonb_agg(e.item),
+		                          'original_quantity',COUNT(*),
+		                          'refunded_quantity',COUNT(*) FILTER (WHERE e.refunded))
 		FROM expanded e
 		WHERE COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku','')) IS NOT NULL
 		GROUP BY e.order_no, COALESCE(NULLIF(e.item->>'skuCode',''), NULLIF(e.item->>'sellerSku',''))
