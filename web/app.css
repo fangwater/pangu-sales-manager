@@ -36,6 +36,7 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .nav-list { display: grid; gap: 4px; margin-top: 28px; }
 .nav-item { width: 100%; height: 42px; padding: 0 11px; border: 0; border-radius: 5px; background: transparent; color: #aab8b3; display: flex; align-items: center; gap: 11px; text-align: left; }
 .nav-item:hover { background: #202e2a; color: #edf5f2; }
+.nav-list a.nav-item { text-decoration: none; }
 .nav-item.active { background: #29443b; color: #fff; }
 .nav-item.active svg { color: #70cbb2; }
 .source-status { margin-top: auto; min-height: 54px; padding: 10px; border-top: 1px solid #2b3935; display: flex; align-items: center; gap: 10px; }
