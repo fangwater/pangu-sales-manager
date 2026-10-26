@@ -88,3 +88,15 @@ PO 按店铺、PO、币种分别核销销售回款、运费回款及两类冲回
 `GET/PUT /api/profit/allocation-policy` 管理全局分摊规则；写入需 `X-Pangu-Request: finance`、同源和当前版本。默认按申报金额比例，也可按数量或暂停自动分摊。计算明细含来源、申报币种、数量、申报价、占比、金额、尾差和版本；规则变更留痕，报表按当前规则重新计算。采购成本已确认 FIFO，但批次扣成本及毛利尚未实现。原商品回款页保持原始 SKU 和唯一匹配口径，公共费用分摊见订单费用页。
 
 包裹读取 Temu `temu_order_details` 中调用成功的包裹及 `temu_shipments` 中 `shipped` 的记录，经 `temu_shipment_orders` 关联 PO。每店独立快照和刷新时间，不依赖销售订单游标；源库故障保留旧快照。完整需求进度见 [需求清单](docs/temu-finance-requirements.md)。
+
+## 订单毛利与财务补录
+
+入口 `?view=profit-margin`、`?view=profit-evidence`。成本、汇率、期初、入出库和商品退回由备货管理，财务补录税金代扣、税金退回、非订单交易费等款项，并维护财务账单 / 税费覆盖确认。四币种下拉、CSV 原子导入、业务键去重、乐观版本和审计适用于全部补录。源流水信息可补费用日期、实际付款日期 / 时间、站点、产品 ID；不覆盖原账单金额。
+
+`GET /api/profit/margin-source` 在只读一致快照中提供订单队列、已去重平台收支、补录及分摊依据，金额和长商品 ID 以字符串传输，不含买家信息。`GET /api/restock/warehouse-evidence` 读取配置的 XLWMS 只读连接，保留无时区源时间；每次最多 5,000 行，需用 kind 和日期缩小范围，唯一订单关联才可导入实际出库。
+
+`GET /api/profit/margin`、`/export` 只读代理备货计算。收入累计到 as_of，三项成本按实际出库扣一次；原币及汇率、费用分摊、退款件数与成本回冲逐笔可查。缺少起始日、期初、出库 / 退款 / 财务覆盖、费用或汇率时保留待核对和空毛利，不将取消数量当退款、不将未知费用补成零。非订单款项单列，不能作为商品毛利。
+
+`GET/POST /api/profit/accounting-records`、`POST /api/profit/accounting-records/remove` 管理补录；写入要求同源 JSON、`X-Pangu-Request: finance` 和版本。`POST /api/profit/margin/snapshots` 由服务端计算所有筛选明细并保存 SHA256 和不可变 JSON，`GET /api/profit/margin/snapshots/{id}` 查看，`?export=1` 导出原快照。快照保存当前缺口状态，后续配置不会改写旧快照，不提供期间锁定或总账过账。
+
+完整功能及正式数据缺口见 [TEMU 财务需求清单](docs/temu-finance-requirements.md)。

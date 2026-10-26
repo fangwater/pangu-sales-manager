@@ -32,6 +32,8 @@ const viewMeta = {
   profit: ["账单导入", "TEMU 财务数据来源与导入记录"],
   "profit-summary": ["财务总览", "TEMU · 回款、费用与收支明细"],
   "profit-ledger": ["订单费用", ""],
+  "profit-margin": ["订单毛利", ""],
+  "profit-evidence": ["财务补录与核对", ""],
   "profit-sku": ["商品回款", ""],
   "profit-unsettled": ["待结算", ""],
   "system-guide": ["报表说明", "数据流 · 计算示意 · 实际报表"],
@@ -85,6 +87,7 @@ function bindEvents() {
   bindFinanceReports();
   bindFinanceLedger();
   bindSystemGuide();
+  bindMargin(); bindEvidence();
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
 
@@ -94,7 +97,7 @@ async function switchView(view) {
   document.querySelectorAll(".view").forEach(section => section.classList.toggle("active", section.id === `view-${view}`));
   document.getElementById("page-title").textContent = viewMeta[view][0];
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
-  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-ledger", "profit-sku", "profit-unsettled", "system-guide"];
+  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-ledger", "profit-margin", "profit-evidence", "profit-sku", "profit-unsettled", "system-guide"];
   document.getElementById("global-filters").hidden = customFilterViews.includes(view);
   updateTopbarForView();
   if (view === "mappings") await loadMappings();
@@ -105,6 +108,8 @@ async function switchView(view) {
   if (view === "profit") await loadProfitSummary();
   if (view === "profit-summary" && !state.profitSummary.loaded) await loadProfitDailySummary();
   if (view === "profit-ledger" && !state.profitLedger.loaded) await loadFinanceLedger();
+  if (view === "profit-margin" && !marginState.data) await loadMargin();
+  if (view === "profit-evidence" && !evidenceState.loaded) await loadEvidence();
   if (view === "profit-sku" && !state.profitSKU.loaded) await loadProfitSKUSummary();
   if (view === "profit-unsettled" && !state.profitUnsettled.loaded) await loadProfitUnsettledSummary();
   if (view === "system-guide") await loadSystemGuideStatus();
@@ -484,7 +489,7 @@ function formatActivityTime(value) { return value ? new Intl.DateTimeFormat("zh-
 function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 
 function updateTopbarForView() {
-  const snapshotView = ["activity-prices", "sku-prices", "profit", "profit-summary", "profit-ledger", "profit-sku", "profit-unsettled", "system-guide"].includes(state.view);
+  const snapshotView = ["activity-prices", "sku-prices", "profit", "profit-summary", "profit-ledger", "profit-margin", "profit-evidence", "profit-sku", "profit-unsettled", "system-guide"].includes(state.view);
   document.getElementById("sync-button").hidden = snapshotView;
   if (state.view === "activity-prices") {
     setText("updated-at", `活动快照 ${formatDateTime(state.activity.meta.synced_at)}`);

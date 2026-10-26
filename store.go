@@ -33,6 +33,9 @@ var profitAllocationSQL string
 //go:embed profit_allocation_query.sql
 var profitAllocationQuerySQL string
 
+//go:embed margin_schema.sql
+var marginSchemaSQL string
+
 type Store struct {
 	db *sql.DB
 }
@@ -77,6 +80,10 @@ func openStore(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := db.ExecContext(ctx, allocationSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply profit allocation: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, marginSchemaSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply margin evidence: %w", err)
 	}
 	return store, nil
 }

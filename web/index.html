@@ -25,10 +25,12 @@
       <nav class="nav-list" aria-label="主导航">
         <button class="nav-item active" data-view="profit-summary" aria-label="财务总览"><i data-lucide="layout-dashboard"></i><span>财务总览</span></button>
         <button class="nav-item" data-view="profit-sku" aria-label="商品回款"><i data-lucide="chart-bar"></i><span>商品回款</span></button>
+        <button class="nav-item" data-view="profit-margin"><i data-lucide="calculator"></i><span>订单毛利</span></button>
+        <button class="nav-item" data-view="profit-evidence"><i data-lucide="file-pen-line"></i><span>财务补录与核对</span></button>
         <button class="nav-item" data-view="profit-ledger" aria-label="订单费用"><i data-lucide="list-checks"></i><span>订单费用</span></button>
         <button class="nav-item" data-view="profit-unsettled" aria-label="待结算"><i data-lucide="hourglass"></i><span>待结算</span></button>
         <button class="nav-item" data-view="profit" aria-label="账单导入"><i data-lucide="file-input"></i><span>账单导入</span></button>
-        <a class="nav-item" href="/pangu-restock/?view=cost-fifo"><i data-lucide="list-ordered"></i><span>FIFO 采购成本</span></a>
+        <a class="nav-item" href="/pangu-restock/?view=cost-fifo"><i data-lucide="list-ordered"></i><span>FIFO 商品成本</span></a>
         <a class="nav-item" href="/pangu-restock/?view=costs" aria-label="采购与物流成本"><i data-lucide="receipt-text"></i><span>采购与物流成本</span></a>
         <button class="nav-item" data-view="system-guide" aria-label="报表说明"><i data-lucide="workflow"></i><span>报表说明</span></button>
         <div class="nav-caption">订单与商品</div>
@@ -358,6 +360,19 @@
         <details class="finance-estimate-panel"><summary><span><i data-lucide="chart-column"></i>订单销量与估算销售额</span><span id="finance-order-note"></span><i data-lucide="chevron-down"></i></summary><div class="finance-chart"><canvas id="finance-coverage-chart" role="img" aria-label="订单销量与已定价销售额"></canvas></div></details>
       </section>
 
+      <section class="view finance-view" id="view-profit-margin">
+        <form class="panel margin-filters" id="margin-filter">
+          <label>订单开始日期<input name="start" type="date" required></label><label>订单截止日期<input name="end" type="date" required></label><label>到账截止日期<input name="as_of" type="date" required></label><label>店铺<select name="shop_key"><option value="">全部店铺</option></select></label><label>订单 / MSKU / 产品<input name="q"></label><label>状态<select name="status"><option value="">全部</option><option value="complete">完整</option><option value="review">待核对</option></select></label><div class="margin-actions"><button class="secondary-command" type="submit" id="margin-query">查询</button><button class="secondary-command" type="button" id="margin-reset">重置</button></div>
+        </form><p id="margin-basis" class="margin-note"></p><p id="margin-snapshot" class="margin-note"></p><div id="margin-summary" class="margin-summary"></div><p id="margin-native" class="margin-note"></p>
+        <div class="finance-toolbar"><div class="finance-tabs"><button class="selected" data-margin-tab="orders">订单明细</button><button data-margin-tab="skus">SKU 汇总</button><button data-margin-tab="overhead">期间非订单费用</button><button data-margin-tab="gaps">缺失数据</button><button data-margin-tab="snapshots">核算快照</button></div><div class="margin-actions"><button class="secondary-command" id="margin-current" hidden>查看当前数据</button><button class="secondary-command" id="margin-save">生成核算快照</button><button class="secondary-command" id="margin-export">导出 CSV</button></div></div>
+        <div class="panel margin-table"><div class="table-scroll"><table><thead id="margin-head"></thead><tbody id="margin-body"></tbody></table></div><div class="finance-pagination" id="margin-pagination"><span id="margin-count"></span><div><button class="secondary-command" id="margin-prev">上一页</button><button class="secondary-command" id="margin-next">下一页</button></div></div></div>
+        <p class="margin-note"><a href="/pangu-restock/?view=cost-accounting">成本、汇率、出库及退回维护</a> · <button class="text-command" data-open-view="profit-evidence">财务补录与核对</button></p>
+      </section>
+      <section class="view finance-view" id="view-profit-evidence">
+        <div class="finance-toolbar"><div class="finance-tabs" id="evidence-tabs"></div><div class="margin-actions"><button class="secondary-command" id="evidence-refresh">刷新</button><button class="secondary-command" id="evidence-import">导入 CSV</button><button class="secondary-command" id="evidence-new">新增记录</button></div></div>
+        <p class="margin-note" id="evidence-note"></p><form class="margin-actions" id="evidence-filter"><label>查询<input name="q" aria-label="查询补录记录"></label><button class="secondary-command">查询</button></form>
+        <div class="panel margin-table"><div class="table-scroll"><table><thead id="evidence-head"></thead><tbody id="evidence-body"></tbody></table></div><div class="finance-pagination"><span id="evidence-count"></span><div><button class="secondary-command" id="evidence-prev">上一页</button><button class="secondary-command" id="evidence-next">下一页</button></div></div></div>
+      </section>
       <section class="view finance-view" id="view-profit-ledger">
         <div class="finance-toolbar"><div class="finance-tabs"><button type="button" data-open-view="profit-summary">收支总览</button><button type="button" data-open-view="profit-sku">商品回款</button><button class="selected" type="button">订单费用</button><button type="button" data-open-view="profit-unsettled">待结算</button></div><button class="secondary-command" id="finance-ledger-export" type="button" disabled><i data-lucide="download"></i>导出费用明细</button></div>
         <form class="finance-filter" id="finance-ledger-form">
@@ -430,8 +445,11 @@
   <script src="./vendor/lucide.min.js"></script>
   <script src="./finance-core.js?v=20261007-3"></script>
   <script src="./finance.js?v=20261026-3"></script>
+  <link rel="stylesheet" href="./margin.css?v=20261026-1">
+  <dialog id="margin-dialog"><div class="dialog-heading"><h2 id="margin-dialog-title">核算明细</h2><button class="icon-command quiet" id="margin-close" type="button" aria-label="关闭">×</button></div><div id="margin-detail"></div></dialog>
+  <script src="./finance-margin.js?v=20261026-1"></script>
   <script src="./finance-ledger.js?v=20261026-3"></script>
   <script src="./system-guide.js?v=20261026-3"></script>
-  <script src="./app.js?v=20261026-3"></script>
+  <script src="./app.js?v=20261026-5"></script>
 </body>
 </html>

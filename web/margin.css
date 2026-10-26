@@ -1,0 +1,24 @@
+.margin-filters { display:grid; grid-template-columns:repeat(4,minmax(140px,1fr)); gap:12px; padding:16px; align-items:end; }
+.margin-filters label,.margin-form-grid label { display:flex; flex-direction:column; gap:6px; color:var(--muted,#69716d); font-size:12px; }
+.margin-filters input,.margin-filters select,.margin-form-grid input,.margin-form-grid select,#evidence-filter input { width:100%; min-height:36px; min-width:0; border:1px solid var(--line,#e2e8e3); border-radius:5px; padding:6px 9px; font:inherit; color:var(--ink,#17201d); background:#fff; }
+.margin-actions,.margin-summary { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.margin-summary { padding:16px 0; gap:12px 24px; font-size:12px; color:var(--muted,#68736f); }
+.margin-summary strong { color:var(--ink,#17201d); font-size:16px; margin-left:5px; }
+.margin-note { margin:12px 0; color:var(--muted,#68736f); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.margin-table { overflow:hidden; }
+.margin-table .table-scroll,#margin-dialog .table-scroll { overflow:auto; max-width:100%; }
+.margin-table td small,#margin-dialog td small { display:block; color:var(--muted,#68736f); font-size:11px; max-width:250px; white-space:normal; margin-top:4px; }
+.margin-hash { max-width:200px; overflow-wrap:anywhere; white-space:normal; }
+#margin-dialog { width:min(1320px,calc(100vw - 32px)); max-height:calc(100vh - 40px); padding:24px; border:1px solid var(--line,#e2e8e3); border-radius:8px; color:var(--ink,#17201d); }
+#margin-dialog::backdrop { background:#172b4d55; }
+#margin-dialog table { width:100%; border-collapse:collapse; font-size:12px; }
+#margin-dialog th,#margin-dialog td { padding:10px; text-align:left; border-bottom:1px solid #e2e8e3; white-space:nowrap; }
+#margin-dialog h3 { font-size:14px; margin:22px 0 12px; }
+.margin-meta,.margin-form-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:16px 0; }
+.margin-meta div { display:flex; flex-direction:column; gap:6px; font-size:12px; }
+.margin-meta span { color:var(--muted,#68736f); }
+.margin-meta strong { font-weight:500; overflow-wrap:anywhere; }
+.finance-pagination { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 16px; font-size:12px; color:var(--muted,#68736f); }
+.finance-pagination > div { display:flex; gap:8px; }
+@media(max-width:1000px){.margin-filters,.margin-meta,.margin-form-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:560px){.margin-filters,.margin-meta,.margin-form-grid{grid-template-columns:minmax(0,1fr);}#margin-dialog{padding:16px;}.finance-toolbar .margin-actions{width:100%;}}
