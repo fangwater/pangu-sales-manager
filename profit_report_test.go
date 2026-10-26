@@ -47,8 +47,8 @@ func TestReportStatusPreservesPartialSettlementAndCurrencies(t *testing.T) {
 		t.Fatalf("currency groups = %+v", result.Pending)
 	}
 	for _, p := range result.Pending {
-		if p.Currency == "USD" && (p.Orders != 2 || p.NetAmount != 125 || p.DiscountedRows != 1 || p.OverlapOrders != 1 || p.OverlapNetAmount != 105 || p.PostedOverlapRows != 1 || p.PostedOverlapAmount != -4) {
-			t.Fatalf("overlap check must preserve pending amounts: %+v", p)
+		if p.Currency == "USD" && (p.Orders != 2 || p.NetAmount != 90 || p.RawNetAmount != 125 || p.PartialOrders != 1 || p.DiscountedRows != 1 || p.OverlapOrders != 1 || p.OverlapNetAmount != 105 || p.PostedOverlapRows != 1 || p.PostedOverlapAmount != -4 || p.LabelRows != 0 || p.SettledLabelRows != 1) {
+			t.Fatalf("partial balance and raw evidence: %+v", p)
 		}
 		if p.Currency == "EUR" && (p.Orders != 1 || p.NetAmount != 30 || p.OverlapOrders != 0) {
 			t.Fatalf("currency isolation: %+v", p)

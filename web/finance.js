@@ -29,8 +29,13 @@ function bindFinanceReports() {
   document.getElementById("finance-sku-export").addEventListener("click", exportFinanceSKU);
   document.getElementById("profit-unsettled-shop").addEventListener("change", event => { state.profitUnsettled.shopKey = event.target.value; loadProfitUnsettledSummary(); });
   document.getElementById("profit-unsettled-refresh").addEventListener("click", loadProfitUnsettledSummary);
-  document.getElementById("finance-pending-keyword").addEventListener("input", renderProfitUnsettledSummary);
+  document.getElementById("finance-pending-keyword").addEventListener("input", renderFinancePendingSKUs);
   document.getElementById("finance-pending-export").addEventListener("click", exportFinancePending);
+  document.getElementById("finance-reconcile-form").addEventListener("submit", event => { event.preventDefault(); loadFinanceReconciliation(1); });
+  ["finance-reconcile-kind", "finance-reconcile-status"].forEach(id => document.getElementById(id).addEventListener("change", () => loadFinanceReconciliation(1)));
+  document.getElementById("finance-reconcile-reset").addEventListener("click", () => { document.getElementById("finance-reconcile-form").reset(); loadFinanceReconciliation(1); });
+  document.getElementById("finance-reconcile-prev").addEventListener("click", () => loadFinanceReconciliation(state.profitUnsettled.reconciliation.page - 1));
+  document.getElementById("finance-reconcile-next").addEventListener("click", () => loadFinanceReconciliation(state.profitUnsettled.reconciliation.page + 1));
 }
 
 function financeDatesValid(startID, endID) {
@@ -239,26 +244,74 @@ function renderProfitSKUSummary() {
 
 async function loadProfitUnsettledSummary() {
   const params = new URLSearchParams({ shop_key: state.profitUnsettled.shopKey });
-  await financeLoad("profitUnsettled", "profit-unsettled-refresh", "finance-pending-notice", "finance-pending-export", [`/api/profit/unsettled-summary?${params}`, `/api/profit/report-status?${params}`], renderProfitUnsettledSummary);
+  await Promise.all([
+    financeLoad("profitUnsettled", "profit-unsettled-refresh", "finance-pending-notice", "finance-pending-export", [`/api/profit/unsettled-summary?${params}`, `/api/profit/report-status?${params}`], renderProfitUnsettledSummary),
+    loadFinanceReconciliation(1),
+  ]);
 }
+
+function financePendingMoney(value, currency) {
+  if (value == null) return "—";
+  if (!currency) return `${Number(value).toFixed(2)}（币种缺失）`;
+  try { return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 2 }).format(Number(value)); }
+  catch { return `${Number(value).toFixed(2)} ${currency}`; }
+}
+const financePendingCell = (value, currency) => `<td class="num">${escapeHtml(financePendingMoney(value, currency))}</td>`;
 
 function renderProfitUnsettledSummary() {
   const report = state.profitUnsettled, shops = report.data?.shops || [], checks = report.status?.pending || [], currencyOK = financeCurrencyOK(report.status);
-  const overlaps = financeN(checks, "overlap_orders"), overlapAmount = financeN(checks, "overlap_net_amount"), net = financeN(checks, "net_amount"), orderCount = financeN(checks, "orders"), labelRows = financeN(checks, "label_rows"), discountedRows = financeN(checks, "discounted_rows");
-  document.getElementById("finance-pending-metrics").innerHTML = [financeMetric("快照净待回款", financeMoney(orderCount && currencyOK && !discountedRows ? net : null), discountedRows ? "折后回款列的口径待确认" : "未自动核销的原始快照", "hourglass", "featured"), financeMetric("待处理 PO", formatNumber(orderCount), "导入快照中的订单", "receipt-text"), financeMetric("待出账面单费", financeMoney(labelRows && currencyOK ? Math.abs(financeN(checks, "label_amount")) : null), `${formatNumber(labelRows)} 条面单记录`, "truck"), financeMetric("重叠待回款", financeMoney(overlaps && currencyOK && !discountedRows ? overlapAmount : null), `${formatNumber(overlaps)} 个 PO 已有到账记录`, "files")].join("");
-  const imported = (report.status?.sources || []).filter(row => row.source === "unsettled").map(row => row.imported_at).filter(Boolean).sort().at(-1);
-  financeNotice("finance-pending-notice", `快照导入 ${financeDate(imported)}`, !currencyOK ? "其他或未知币种，暂停 USD 合计" : discountedRows ? "含非零折后回款列，暂停净额合计" : `${formatNumber(overlaps)} 个重叠 PO 未自动核销，重叠金额不可再次累计`);
-  const values = [financeN(shops, "sales_receipt"), financeN(shops, "freight_receipt"), -Math.abs(financeN(shops, "sales_chargeback")), -Math.abs(financeN(shops, "freight_chargeback"))];
-  financeChart("financePendingCash", "finance-pending-cash-chart", { type: "bar", data: { labels: ["销售待回款", "运费待回款", "销售冲回", "运费冲回"], datasets: [{ label: "快照金额", data: currencyOK && orderCount ? values : [], backgroundColor: ["#4f46e5", "#a5b4fc", "#fb923c", "#fbbf24"], borderRadius: 6, maxBarThickness: 65 }] }, options: financeChartOptions({ plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => financeMoney(item.raw) } } } }) });
-  financeDonut("financePendingOverlap", "finance-pending-overlap-chart", [["与已到账重叠", overlaps], ["其余待处理", Math.max(0, orderCount - overlaps)]], "count");
-  document.getElementById("finance-pending-overlap-total").innerHTML = `<small>重叠 PO</small><strong>${formatNumber(overlaps)}</strong>`;
-  document.getElementById("finance-pending-overlap-legend").innerHTML = [["与已到账重叠", overlaps], ["其余待处理", Math.max(0, orderCount - overlaps)]].map(([label, count], index) => `<div><i style="background:${financeColors[index]}"></i><span>${label}</span><strong>${formatNumber(count)} 个</strong></div>`).join("");
-  document.getElementById("profit-unsettled-shop-body").innerHTML = shops.map(shop => { const check = checks.find(row => row.shop_key === shop.shop_key) || {}; return `<tr><td>${escapeHtml(financeShopName(shop.shop_key))}</td>${financeAmountCell(shop.sales_receipt, currencyOK)}${financeAmountCell(-Math.abs(shop.sales_chargeback), currencyOK)}${financeAmountCell(shop.freight_receipt, currencyOK)}${financeAmountCell(-Math.abs(shop.freight_chargeback), currencyOK)}${financeAmountCell(Number(shop.sales_receipt_after_discount || 0) + Number(shop.freight_receipt_after_discount || 0), currencyOK)}${financeAmountCell(shop.pending_shipping_label_fee, currencyOK)}<td class="num">${formatNumber(check.overlap_orders)}</td>${financeAmountCell(check.overlap_net_amount, currencyOK && !discountedRows)}</tr>`; }).join("") || emptyRow(9, "所选店铺没有待结算快照");
-  const keyword = document.getElementById("finance-pending-keyword").value.trim().toLowerCase(), all = report.data?.skus || [], declared = financeN(all, "declared_total");
-  const rows = all.filter(row => !keyword || `${row.sku_id} ${row.sku_name}`.toLowerCase().includes(keyword)).slice().sort((a, b) => b.declared_total - a.declared_total);
-  document.getElementById("profit-unsettled-sku-body").innerHTML = rows.map(row => `<tr><td>${escapeHtml(financeShopName(row.shop_key))}</td><td><span class="finance-sku-code">${escapeHtml(row.sku_id)}</span><span class="finance-product" title="${escapeHtml(row.sku_name)}">${escapeHtml(row.sku_name)}</span></td><td class="num">${formatNumber(row.quantity)}</td>${financeAmountCell(row.declared_total, currencyOK)}<td>${financePercent(declared && currencyOK ? row.declared_total / declared * 100 : null)}<div class="cell-coverage"><i style="width:${declared && currencyOK ? Math.max(0, row.declared_total / declared * 100) : 0}%"></i></div></td></tr>`).join("") || emptyRow(5, "没有匹配的待处理 SKU");
+  const net = financeN(checks, "net_amount"), orderCount = financeN(checks, "orders"), labelRows = financeN(checks, "label_rows"), reviews = financeN(checks, "review_orders"), settled = financeN(checks, "settled_orders"), partial = financeN(checks, "partial_orders");
+  const available = report.loaded && checks.length > 0 && currencyOK;
+  document.getElementById("finance-pending-metrics").innerHTML = [financeMetric("剩余净待回款", financeMoney(available && !reviews ? net : null), reviews ? `${formatNumber(reviews)} 个 PO 待核对` : "四类收支分别扣减已结算金额", "hourglass", "featured"), financeMetric("未结清 PO", formatNumber(orderCount), `其中部分核销 ${formatNumber(partial)} 个`, "receipt-text"), financeMetric("待出账面单净额", financeMoney(available ? financeN(checks, "label_amount") : null), `${formatNumber(labelRows)} 行 · 已核销 ${formatNumber(financeN(checks, "settled_label_rows"))} 行`, "truck"), financeMetric("已核销 PO", formatNumber(settled), `原始 ${formatNumber(financeN(checks, "raw_orders"))} 个 · 已归档 ${formatNumber(financeN(checks, "archived_orders"))} 个`, "files")].join("");
+  const imported = (report.status?.sources || []).filter(row => ["unsettled", "shipping_pending"].includes(row.source)).map(row => row.imported_at).filter(Boolean).sort().at(-1);
+  financeNotice("finance-pending-notice", `快照导入 ${financeDate(imported)}`, !currencyOK ? "含其他或未知币种，暂停 USD 合计；明细按原币种展示" : reviews ? `${formatNumber(reviews)} 个 PO 口径待核对，暂停净待回款合计` : "已扣除匹配的结算金额；待处理源文件无业务日期，余额不按月份拆分");
+  const values = [financeN(shops, "sales_receipt"), financeN(shops, "freight_receipt"), financeN(shops, "sales_chargeback"), financeN(shops, "freight_chargeback")];
+  financeChart("financePendingCash", "finance-pending-cash-chart", { type: "bar", data: { labels: ["销售待回款", "运费待回款", "销售冲回", "运费冲回"], datasets: [{ label: "剩余金额", data: currencyOK && !reviews && report.loaded ? values : [], backgroundColor: ["#4f46e5", "#a5b4fc", "#fb923c", "#fbbf24"], borderRadius: 6, maxBarThickness: 65 }] }, options: financeChartOptions({ plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => financeMoney(item.raw) } } } }) });
+  const groups = [["已核销", settled], ["部分核销", partial], ["未核销", Math.max(0, orderCount - partial - reviews)], ["待核对", reviews]];
+  financeDonut("financePendingOverlap", "finance-pending-overlap-chart", groups, "count");
+  document.getElementById("finance-pending-overlap-total").innerHTML = `<small>有效 PO</small><strong>${formatNumber(settled + orderCount)}</strong>`;
+  document.getElementById("finance-pending-overlap-legend").innerHTML = groups.map(([label, count], index) => `<div><i style="background:${financeColors[index]}"></i><span>${label}</span><strong>${formatNumber(count)} 个</strong></div>`).join("");
+  document.getElementById("profit-unsettled-shop-body").innerHTML = shops.map(shop => { const check = checks.find(row => row.shop_key === shop.shop_key && row.currency === shop.currency) || {}; return `<tr><td>${escapeHtml(financeShopName(shop.shop_key))}</td><td>${escapeHtml(shop.currency || "缺失")}</td>${financePendingCell(shop.sales_receipt, shop.currency)}${financePendingCell(shop.sales_chargeback, shop.currency)}${financePendingCell(shop.freight_receipt, shop.currency)}${financePendingCell(shop.freight_chargeback, shop.currency)}${financePendingCell(shop.pending_shipping_label_fee, shop.currency)}<td class="num">${formatNumber(check.orders)}</td><td class="num">${formatNumber(check.settled_orders)}</td></tr>`; }).join("") || emptyRow(9, "所选店铺没有待结算快照");
+  renderFinancePendingSKUs();
   lucide.createIcons();
 }
+
+function renderFinancePendingSKUs() {
+  const keyword = document.getElementById("finance-pending-keyword").value.trim().toLowerCase(), all = state.profitUnsettled.data?.skus || [];
+  const rows = all.filter(row => !keyword || `${row.sku_id} ${row.sku_name}`.toLowerCase().includes(keyword)).slice().sort((a, b) => b.declared_total - a.declared_total);
+  document.getElementById("profit-unsettled-sku-body").innerHTML = rows.map(row => `<tr><td>${escapeHtml(financeShopName(row.shop_key))}</td><td><span class="finance-sku-code">${escapeHtml(row.sku_id)}</span><span class="finance-product" title="${escapeHtml(row.sku_name)}">${escapeHtml(row.sku_name)}</span></td><td>${escapeHtml(row.currency || "缺失")}</td><td class="num">${formatNumber(row.quantity)}</td>${financePendingCell(row.declared_total, row.currency)}<td class="num">${formatNumber(row.partial_orders)}</td></tr>`).join("") || emptyRow(6, "没有匹配的未结清 PO 商品");
+}
+
+async function loadFinanceReconciliation(page = 1) {
+  const report = state.profitUnsettled.reconciliation;
+  report.controller?.abort();
+  const controller = new AbortController(); report.controller = controller;
+  report.page = Math.max(1, page); report.data = null;
+  const params = new URLSearchParams({ shop_key: state.profitUnsettled.shopKey, kind: document.getElementById("finance-reconcile-kind").value, status: document.getElementById("finance-reconcile-status").value, q: document.getElementById("finance-reconcile-keyword").value.trim(), page: report.page, page_size: 30 });
+  document.getElementById("finance-reconcile-body").innerHTML = emptyRow(9, "正在读取核销明细");
+  ["prev", "next"].forEach(direction => document.getElementById(`finance-reconcile-${direction}`).disabled = true);
+  document.getElementById("finance-reconcile-total").textContent = "";
+  try {
+    const response = await api(`/api/profit/reconciliation?${params}`, { signal: controller.signal });
+    if (report.controller !== controller) return;
+    report.data = response.data;
+    const labels = { settled: "已核销", partial: "部分核销", pending: "未核销", review: "待核对", archived: "已归档" };
+    document.getElementById("finance-reconcile-body").innerHTML = report.data.rows.map(row => `<tr><td>${escapeHtml(financeShopName(row.shop_key))}</td><td>${escapeHtml(row.reference || "—")}${report.data.kind === "orders" ? financeReconciliationComponents(row) : ""}</td><td>${escapeHtml(row.secondary_reference || "—")}</td><td>${escapeHtml(row.currency || "缺失")}</td>${financePendingCell(row.raw_amount, row.currency)}${financePendingCell(row.matched_amount, row.currency)}${financePendingCell(row.remaining_amount, row.currency)}<td>${financePill(labels[row.status] || row.status, row.status === "review" ? "warning" : "muted")}</td><td>${escapeHtml(row.reason || "—")}</td></tr>`).join("") || emptyRow(9, "没有匹配的核销记录");
+    const pages = Math.max(1, Math.ceil(report.data.total / report.data.page_size));
+    document.getElementById("finance-reconcile-total").textContent = `共 ${formatNumber(report.data.total)} 条`;
+    document.getElementById("finance-reconcile-page").textContent = `${report.page} / ${pages}`;
+    document.getElementById("finance-reconcile-prev").disabled = report.page <= 1;
+    document.getElementById("finance-reconcile-next").disabled = report.page >= pages;
+  } catch (error) {
+    if (error.name === "AbortError" || report.controller !== controller) return;
+    document.getElementById("finance-reconcile-body").innerHTML = emptyRow(9, `核销明细读取失败：${error.message}`);
+  }
+}
+
+function financeReconciliationComponents(row) {
+  return `<details><summary>收支构成</summary><table><thead><tr><th>类型</th><th>原始金额</th><th>剩余金额</th></tr></thead><tbody>${[["销售回款", "sales_receipt"], ["运费回款", "freight_receipt"], ["销售冲回", "sales_chargeback"], ["运费冲回", "freight_chargeback"]].map(([label, key]) => `<tr><td>${label}</td>${financePendingCell(key.includes("chargeback") ? -Math.abs(row[key]) : row[key], row.currency)}${financePendingCell(row[`remaining_${key}`], row.currency)}</tr>`).join("")}</tbody></table></details>`;
+}
+
 function financeDownloadCSV(name, headers, rows, notes) {
   const lines = [headers, ...rows];
   if (notes) lines.push([], ["报表口径", notes]);
@@ -290,8 +343,7 @@ function exportFinanceSKU() {
 
 function exportFinancePending() {
   if (!state.profitUnsettled.loaded) return;
-  const currencyOK = financeCurrencyOK(state.profitUnsettled.status);
-  financeDownloadCSV("temu-pending-check.csv", ["店铺", "币种", "待处理PO", "原始净待回款", "待出账面单行", "待出账面单费", "与已到账重叠PO", "重叠净待回款", "与已出账重叠面单行"], (state.profitUnsettled.status.pending || []).map(row => [financeShopName(row.shop_key), row.currency, row.orders, currencyOK && !row.discounted_rows ? row.net_amount : "", row.label_rows, currencyOK ? row.label_amount : "", row.overlap_orders, currencyOK && !row.discounted_rows ? row.overlap_net_amount : "", row.posted_overlap_rows]), "导入快照，未自动核销。重叠可能涉及部分结算，必须核对；回款与面单未按订单对齐，不能相减作为利润。非零折后列需确认含义后计算。");
+  financeDownloadCSV("temu-pending-check.csv", ["店铺", "币种", "原始PO", "原始净待回款", "未结清PO", "剩余净待回款", "已核销PO", "部分核销PO", "待核对PO", "归档PO", "原始面单行", "原始面单净额", "未结清面单行", "剩余面单净额", "已核销面单行", "部分核销面单行", "待核对面单行", "归档面单行"], (state.profitUnsettled.status.pending || []).map(row => [financeShopName(row.shop_key), row.currency, row.raw_orders, row.raw_net_amount, row.orders, row.review_orders ? "" : row.net_amount, row.settled_orders, row.partial_orders, row.review_orders, row.archived_orders, row.raw_label_rows, row.raw_label_amount, row.label_rows, row.label_amount, row.settled_label_rows, row.partial_label_rows, row.review_label_rows, row.archived_label_rows]), "按原币种展示。四类收支分别扣减已结算金额，部分结算保留余额。原始数量和金额含归档记录，剩余金额仅含有效快照；待核对 PO 保留原额。待回款与面单费未逐订单对齐，不能相减为利润。");
 }
 
 function financeWaterfall(id, key, totals, available) {

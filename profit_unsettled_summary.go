@@ -1,15 +1,18 @@
 package main
 
-import "context"
+import (
+	"context"
+	"sort"
+)
 
 // ProfitUnsettledShopSummary is a per-shop rollup of "待处理款项" (PO amounts
 // not yet settled) and "发货面单费-待出账" (shipping label fees not yet
 // posted). Both source tables have no date column at all, so this is a
-// standing estimate, not a bucketed history — once the real posted data
-// lands in temu_profit_settled_flows / shipping_label_fees(billing_phase=
-// 'posted'), it naturally supersedes this estimate on the daily summary page.
+// standing estimate, not a bucketed history. Reconciliation deducts the posted
+// components, retains partial balances, and keeps unresolved source semantics visible.
 type ProfitUnsettledShopSummary struct {
 	ShopKey                     string  `json:"shop_key"`
+	Currency                    string  `json:"currency"`
 	SalesReceipt                float64 `json:"sales_receipt"`
 	SalesReceiptAfterDiscount   float64 `json:"sales_receipt_after_discount"`
 	SalesChargeback             float64 `json:"sales_chargeback"`
@@ -25,11 +28,15 @@ type ProfitUnsettledShopSummary struct {
 // the platform-SKU-keyed profit-sku-summary view.
 type ProfitUnsettledSKURow struct {
 	ShopKey       string  `json:"shop_key"`
+	Currency      string  `json:"currency"`
 	SKUID         int64   `json:"sku_id"`
 	SKUName       string  `json:"sku_name"`
 	Quantity      float64 `json:"quantity"`
 	DeclaredTotal float64 `json:"declared_total"`
+	PartialOrders int64   `json:"partial_orders"`
 }
+
+type profitCurrencyShop struct{ ShopKey, Currency string }
 
 type ProfitUnsettledSummaryResponse struct {
 	Shops []ProfitUnsettledShopSummary `json:"shops"`
@@ -45,21 +52,24 @@ func (s *Store) profitUnsettledSummary(ctx context.Context, shopKey string) (Pro
 	if err != nil {
 		return ProfitUnsettledSummaryResponse{}, err
 	}
-	byShop := make(map[string]*ProfitUnsettledShopSummary, len(shops))
+	byShop := make(map[profitCurrencyShop]int, len(shops))
 	result := make([]ProfitUnsettledShopSummary, len(shops))
 	for i, shop := range shops {
 		result[i] = shop
-		byShop[shop.ShopKey] = &result[i]
+		byShop[profitCurrencyShop{shop.ShopKey, shop.Currency}] = i
 	}
-	for shopKey, amount := range pendingShippingFees {
-		row, ok := byShop[shopKey]
+	for key, amount := range pendingShippingFees {
+		index, ok := byShop[key]
 		if !ok {
-			result = append(result, ProfitUnsettledShopSummary{ShopKey: shopKey})
-			row = &result[len(result)-1]
-			byShop[shopKey] = row
+			index = len(result)
+			result = append(result, ProfitUnsettledShopSummary{ShopKey: key.ShopKey, Currency: key.Currency})
+			byShop[key] = index
 		}
-		row.PendingShippingLabelFee = amount
+		result[index].PendingShippingLabelFee = amount
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ShopKey < result[j].ShopKey || result[i].ShopKey == result[j].ShopKey && result[i].Currency < result[j].Currency
+	})
 
 	skus, err := s.queryProfitUnsettledSKUs(ctx, shopKey)
 	if err != nil {
@@ -71,12 +81,16 @@ func (s *Store) profitUnsettledSummary(ctx context.Context, shopKey string) (Pro
 
 func (s *Store) queryProfitUnsettledShops(ctx context.Context, shopKey string) ([]ProfitUnsettledShopSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT shop_key,
-		       COALESCE(SUM(sales_receipt), 0), COALESCE(SUM(sales_receipt_after_discount), 0), COALESCE(SUM(sales_chargeback), 0),
-		       COALESCE(SUM(freight_receipt), 0), COALESCE(SUM(freight_receipt_after_discount), 0), COALESCE(SUM(freight_chargeback), 0)
-		FROM temu_profit_unsettle_orders
-		WHERE ($1='' OR shop_key=$1)
-		GROUP BY shop_key ORDER BY shop_key
+		SELECT shop_key,currency,
+		 COALESCE(SUM(remaining_sales_receipt) FILTER(WHERE status<>'settled'),0),
+		 COALESCE(SUM(sales_receipt_after_discount) FILTER(WHERE status<>'settled'),0),
+		 COALESCE(SUM(remaining_sales_chargeback) FILTER(WHERE status<>'settled'),0),
+		 COALESCE(SUM(remaining_freight_receipt) FILTER(WHERE status<>'settled'),0),
+		 COALESCE(SUM(freight_receipt_after_discount) FILTER(WHERE status<>'settled'),0),
+		 COALESCE(SUM(remaining_freight_chargeback) FILTER(WHERE status<>'settled'),0)
+		FROM profit_pending_order_reconciliation
+		WHERE snapshot_active AND ($1='' OR shop_key=$1)
+		GROUP BY shop_key,currency ORDER BY shop_key,currency
 	`, shopKey)
 	if err != nil {
 		return nil, err
@@ -85,7 +99,7 @@ func (s *Store) queryProfitUnsettledShops(ctx context.Context, shopKey string) (
 	var result []ProfitUnsettledShopSummary
 	for rows.Next() {
 		var row ProfitUnsettledShopSummary
-		if err := rows.Scan(&row.ShopKey, &row.SalesReceipt, &row.SalesReceiptAfterDiscount, &row.SalesChargeback,
+		if err := rows.Scan(&row.ShopKey, &row.Currency, &row.SalesReceipt, &row.SalesReceiptAfterDiscount, &row.SalesChargeback,
 			&row.FreightReceipt, &row.FreightReceiptAfterDiscount, &row.FreightChargeback); err != nil {
 			return nil, err
 		}
@@ -94,38 +108,38 @@ func (s *Store) queryProfitUnsettledShops(ctx context.Context, shopKey string) (
 	return result, rows.Err()
 }
 
-func (s *Store) queryProfitPendingShippingLabelFees(ctx context.Context, shopKey string) (map[string]float64, error) {
+func (s *Store) queryProfitPendingShippingLabelFees(ctx context.Context, shopKey string) (map[profitCurrencyShop]float64, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT shop_key, COALESCE(SUM(freight_amount), 0)
-		FROM temu_profit_shipping_label_fees
-		WHERE billing_phase='pending' AND ($1='' OR shop_key=$1)
-		GROUP BY shop_key
+		SELECT shop_key,currency,COALESCE(SUM(remaining_amount) FILTER(WHERE status<>'settled'),0)
+		FROM profit_pending_shipping_reconciliation
+		WHERE snapshot_active AND ($1='' OR shop_key=$1)
+		GROUP BY shop_key,currency
 	`, shopKey)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make(map[string]float64)
+	result := make(map[profitCurrencyShop]float64)
 	for rows.Next() {
-		var shop string
+		var key profitCurrencyShop
 		var amount float64
-		if err := rows.Scan(&shop, &amount); err != nil {
+		if err := rows.Scan(&key.ShopKey, &key.Currency, &amount); err != nil {
 			return nil, err
 		}
-		result[shop] = amount
+		result[key] = amount
 	}
 	return result, rows.Err()
 }
 
 func (s *Store) queryProfitUnsettledSKUs(ctx context.Context, shopKey string) ([]ProfitUnsettledSKURow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT o.shop_key, sk.sku_id, MAX(sk.sku_name),
-		       COALESCE(SUM(sk.quantity), 0), COALESCE(SUM(sk.quantity * sk.declared_price), 0)
+		SELECT o.shop_key,o.currency,sk.sku_id,MAX(sk.sku_name),
+		       COALESCE(SUM(sk.quantity),0),COALESCE(SUM(sk.quantity*sk.declared_price),0),
+		       COUNT(DISTINCT o.id) FILTER(WHERE o.status='partial')
 		FROM temu_profit_unsettle_skus sk
-		JOIN temu_profit_unsettle_orders o ON o.id=sk.unsettle_order_id
-		WHERE ($1='' OR o.shop_key=$1)
-		GROUP BY o.shop_key, sk.sku_id
-		ORDER BY o.shop_key, sk.sku_id
+		JOIN profit_pending_order_reconciliation o ON o.id=sk.unsettle_order_id
+		WHERE o.status IN ('pending','partial','review') AND ($1='' OR o.shop_key=$1)
+		GROUP BY o.shop_key,o.currency,sk.sku_id ORDER BY o.shop_key,o.currency,sk.sku_id
 	`, shopKey)
 	if err != nil {
 		return nil, err
@@ -134,7 +148,7 @@ func (s *Store) queryProfitUnsettledSKUs(ctx context.Context, shopKey string) ([
 	var result []ProfitUnsettledSKURow
 	for rows.Next() {
 		var row ProfitUnsettledSKURow
-		if err := rows.Scan(&row.ShopKey, &row.SKUID, &row.SKUName, &row.Quantity, &row.DeclaredTotal); err != nil {
+		if err := rows.Scan(&row.ShopKey, &row.Currency, &row.SKUID, &row.SKUName, &row.Quantity, &row.DeclaredTotal, &row.PartialOrders); err != nil {
 			return nil, err
 		}
 		result = append(result, row)

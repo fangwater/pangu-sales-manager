@@ -88,12 +88,50 @@ func (s *Store) profitTableCounts(ctx context.Context) ([]ProfitTableCount, erro
 }
 
 func (s *Store) applyProfitImport(ctx context.Context, shopKey string, batches []ProfitImportBatch) (ProfitImportResult, error) {
-	result := ProfitImportResult{ShopKey: shopKey, Files: []ProfitFileImportResult{}, Tables: []ProfitTableStat{}}
+	return s.applyProfitImportMode(ctx, shopKey, batches, "merge")
+}
+
+func (s *Store) applyProfitImportMode(ctx context.Context, shopKey string, batches []ProfitImportBatch, pendingMode string) (ProfitImportResult, error) {
+	result := ProfitImportResult{ShopKey: shopKey, PendingMode: pendingMode, Files: []ProfitFileImportResult{}, Tables: []ProfitTableStat{}}
+	if pendingMode != "merge" && pendingMode != "snapshot" {
+		return result, fmt.Errorf("待处理导入方式无效")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('profit_import'),hashtext($1))`, shopKey); err != nil {
+		return result, err
+	}
+	if pendingMode == "snapshot" {
+		shippingFiles, orderFiles := 0, 0
+		for _, batch := range batches {
+			pendingShipping := batch.Kind == ProfitFileShippingPending
+			for _, item := range batch.Shipping {
+				pendingShipping = pendingShipping || item.BillingPhase == ProfitBillingPending
+			}
+			if pendingShipping {
+				shippingFiles++
+			}
+			if batch.Kind == ProfitFileUnsettle || len(batch.Unsettles) > 0 {
+				orderFiles++
+			}
+		}
+		if shippingFiles > 1 || orderFiles > 1 {
+			return result, fmt.Errorf("全量快照中，每类待处理账单只能包含一个文件")
+		}
+		if shippingFiles > 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE temu_profit_shipping_label_fees SET pending_active=false WHERE shop_key=$1 AND billing_phase='pending'`, shopKey); err != nil {
+				return result, err
+			}
+		}
+		if orderFiles > 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE temu_profit_unsettle_orders SET pending_active=false WHERE shop_key=$1`, shopKey); err != nil {
+				return result, err
+			}
+		}
+	}
 
 	totals := map[string]*ProfitTableStat{}
 	for _, batch := range batches {
@@ -181,7 +219,7 @@ func upsertShippingLabelFees(ctx context.Context, tx *sql.Tx, shopKey string, it
 		ON CONFLICT (shop_key, billing_phase, package_no, tracking_no, bill_type, remark) DO UPDATE SET
 			carrier_code=EXCLUDED.carrier_code, freight_amount=EXCLUDED.freight_amount,
 			currency=EXCLUDED.currency, reconcile_status=EXCLUDED.reconcile_status,
-			occurred_at=EXCLUDED.occurred_at, imported_at=now()
+			occurred_at=EXCLUDED.occurred_at, imported_at=now(), pending_active=true
 		RETURNING (xmax = 0)
 	`)
 	if err != nil {
@@ -434,7 +472,7 @@ func upsertUnsettleOrders(ctx context.Context, tx *sql.Tx, shopKey string, items
 			sales_receipt_after_discount=EXCLUDED.sales_receipt_after_discount,
 			sales_chargeback=EXCLUDED.sales_chargeback, freight_receipt=EXCLUDED.freight_receipt,
 			freight_chargeback=EXCLUDED.freight_chargeback,
-			freight_receipt_after_discount=EXCLUDED.freight_receipt_after_discount, imported_at=now()
+			freight_receipt_after_discount=EXCLUDED.freight_receipt_after_discount, imported_at=now(), pending_active=true
 		RETURNING id, (xmax = 0)
 	`)
 	if err != nil {

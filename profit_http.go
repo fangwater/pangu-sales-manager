@@ -115,6 +115,14 @@ func (s *APIServer) importProfit(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	hint := strings.TrimSpace(request.FormValue("table"))
+	pendingMode := strings.TrimSpace(request.FormValue("pending_mode"))
+	if pendingMode == "" {
+		pendingMode = "merge"
+	}
+	if pendingMode != "merge" && pendingMode != "snapshot" {
+		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "待处理导入方式无效"})
+		return
+	}
 	file, header, err := request.FormFile("file")
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "请上传 xlsx 或 zip"})
@@ -147,7 +155,7 @@ func (s *APIServer) importProfit(writer http.ResponseWriter, request *http.Reque
 		s.internalError(writer, "start temu profit import", err)
 		return
 	}
-	result, applyErr := s.store.applyProfitImport(ctx, shopKey, batches)
+	result, applyErr := s.store.applyProfitImportMode(ctx, shopKey, batches, pendingMode)
 	result.SourceKind = sourceKind
 	result.SourceName = filename
 	status := "succeeded"

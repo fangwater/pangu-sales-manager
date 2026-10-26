@@ -53,12 +53,22 @@ SKU 价格按区间增量保存。SKC 为 `confirmed` 时使用其 `active_enrol
 - `POST /api/marketing/sku-prices/query`：批量查询当前或指定时间的 SKU 价格；不传 `at` 走内存，传 `at` 走 PG 区间并允许最近区间推断。
 - `POST /api/marketing/order-price-estimates/backfill`：按时间范围批量预览或写入 Temu 订单价格估算。
 - `GET /api/profit/summary`：TEMU 利润源表行数与最近一次导入状态。
-- `POST /api/profit/import`：上传 `xlsx` 或 `zip`，按业务键增量覆盖写入本地 PostgreSQL。表单字段：`file`、`shop_key`，单表可附带 `table`。
+- `POST /api/profit/import`：上传 `xlsx` 或 `zip`，按业务键增量覆盖写入本地 PostgreSQL。表单字段：`file`、`shop_key`，单表可附带 `table`；`pending_mode` 为 `merge`（默认增量更新）或 `snapshot`（全量待处理快照）。
 
-TEMU 利润表按 `TEMU利润计算/*.xlsx` 全列入库。发货/退货面单费按文件名区分已出账、待出账、商家仓、第三方仓；账务明细按工作表拆到拒付、履约违规、平台承担面单、处置费和结算流水。再次上传同一业务键会覆盖金额、状态和时间，未出现的旧行保留。
+TEMU 利润表按 `TEMU利润计算/*.xlsx` 全列入库。发货/退货面单费按文件名区分已出账、待出账、商家仓、第三方仓；账务明细按工作表拆到拒付、履约违规、平台承担面单、处置费和结算流水。再次上传同一业务键会覆盖金额、状态和时间。增量更新保留未出现的旧行；全量快照将本店同类待处理文件中未出现的记录标记为归档，原始记录保留。每个全量快照仅接受一个待处理款项文件和一个待出账面单文件；没有上传的类型不受影响。导入失败整批回滚。
 
 历史查询的 `match_method` 包括 `exact_interval`、`nearest_after`、`nearest_before` 和 `unmatched`。区间外推断始终返回 `warning` 并附带时间距离，不会伪装成准确成交价。订单补全同时保留 `price_source`、`match_method`、订单时间口径和匹配区间，便于审计。
 
 ### Restock snapshot identities
 
 `GET /api/restock/snapshot?days=730&version=3` exports the sold SKU (`sales_sku`) separately from the fulfillment SKU (`sku`), with `units`, `conversion_factor` and `warehouse_units`. Aggregate sales by `sales_sku` and procurement demand by `sku`; never attribute unconverted quantities from a different pack to the warehouse SKU's sales. Temu uses its original `ext_code`; Shein's 1:1 opaque aliases retain the existing canonical identity, while non-1:1 conversions retain the source identity. The default version 2 response remains available for existing consumers. Both versions exclude ineligible/cancelled/refunded orders and retain the existing date/status semantics.
+
+## 待结算核销
+
+`GET /api/profit/reconciliation` 返回分页核销明细。参数：`kind=orders|shipping`、`shop_key`、`status=open|all|pending|partial|settled|review|archived`、`q`（单号字面匹配）、`page`、`page_size`（最大 200）。
+
+PO 按店铺、PO、币种分别核销销售回款、运费回款及两类冲回；每类扣减以原始金额为上限，剩余分量为零才算结清。结算流水优先，缺少同 PO 同币种流水时才使用 PO 聚合账单，避免重复扣减。币种或 PO 缺失、折后口径不明和未识别交易类型保留原额，标记待核对。
+
+面单按店铺、包裹、运单、账单类型、币种及金额方向汇总匹配，备注不参与匹配。只使用成功出账记录，部分出账保留余额。核销视图不改动原始金额；归档记录不计入剩余余额。待处理源文件缺少业务日期，不拆分月度余额。未结清 PO 商品使用原单数量和申报金额，不按回款比例折算。
+
+数据库测试需设置隔离的 `TEST_DATABASE_URL`；未设置时跳过财务数据库测试，不连接业务数据库。

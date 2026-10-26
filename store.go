@@ -18,6 +18,9 @@ var schemaSQL string
 //go:embed profit_schema.sql
 var profitSchemaSQL string
 
+//go:embed profit_reconciliation.sql
+var profitReconciliationSQL string
+
 type Store struct {
 	db *sql.DB
 }
@@ -42,6 +45,10 @@ func openStore(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := db.ExecContext(ctx, profitSchemaSQL); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply temu profit schema: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, profitReconciliationSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply profit reconciliation: %w", err)
 	}
 	return store, nil
 }

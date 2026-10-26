@@ -17,7 +17,7 @@ const state = {
   profit: { summary: null, lastResult: null },
   profitSummary: { period: "week", shopKey: "", start: "", end: "", data: null, status: null, loaded: false },
   profitSKU: { start: "", end: "", shopKey: "", search: "", sort: "sales_receipt_amount", data: null, loaded: false },
-  profitUnsettled: { shopKey: "", data: null, loaded: false },
+  profitUnsettled: { shopKey: "", data: null, loaded: false, reconciliation: { page: 1, data: null } },
 };
 
 const viewMeta = {
@@ -31,7 +31,7 @@ const viewMeta = {
   profit: ["账单导入", "TEMU 财务数据来源与导入记录"],
   "profit-summary": ["财务总览", "TEMU · 回款、费用与收支明细"],
   "profit-sku": ["商品回款", "商品回款排行、分布与明细"],
-  "profit-unsettled": ["待结算检查", "待回款、面单费与已结算重叠检查"],
+  "profit-unsettled": ["待结算", ""],
   "system-guide": ["报表说明", "数据流 · 计算示意 · 实际报表"],
 };
 
@@ -557,6 +557,7 @@ async function uploadProfitFile(event) {
   const form = new FormData();
   form.append("file", file);
   form.append("shop_key", shopKey);
+  form.append("pending_mode", document.getElementById("profit-pending-mode").value);
   if (table) form.append("table", table);
   button.disabled = true;
   button.classList.add("syncing");

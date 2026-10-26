@@ -69,14 +69,12 @@ func openTestProfitStore(t *testing.T, ctx context.Context) *Store {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		url = os.Getenv("DATABASE_URL")
-	}
-	if url == "" {
-		url = "host=/var/run/postgresql dbname=pangu_sales user=fanghaizhou sslmode=disable"
+		t.Skip("TEST_DATABASE_URL is required for isolated database tests")
+		return nil
 	}
 	store, err := openStore(ctx, url)
 	if err != nil {
-		t.Skipf("local postgres unavailable: %v", err)
+		t.Fatalf("open isolated test database: %v", err)
 		return nil
 	}
 	if _, err := store.db.ExecContext(ctx, `

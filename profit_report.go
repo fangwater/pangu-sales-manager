@@ -42,6 +42,18 @@ type ProfitPendingCheck struct {
 	LabelAmount         float64 `json:"label_amount"`
 	PostedOverlapRows   int64   `json:"posted_overlap_rows"`
 	PostedOverlapAmount float64 `json:"posted_overlap_amount"`
+	RawOrders           int64   `json:"raw_orders"`
+	RawNetAmount        float64 `json:"raw_net_amount"`
+	SettledOrders       int64   `json:"settled_orders"`
+	PartialOrders       int64   `json:"partial_orders"`
+	ReviewOrders        int64   `json:"review_orders"`
+	ArchivedOrders      int64   `json:"archived_orders"`
+	RawLabelRows        int64   `json:"raw_label_rows"`
+	RawLabelAmount      float64 `json:"raw_label_amount"`
+	SettledLabelRows    int64   `json:"settled_label_rows"`
+	PartialLabelRows    int64   `json:"partial_label_rows"`
+	ReviewLabelRows     int64   `json:"review_label_rows"`
+	ArchivedLabelRows   int64   `json:"archived_label_rows"`
 }
 
 type ProfitReportStatus struct {
@@ -128,49 +140,7 @@ func (s *Store) profitReportStatus(ctx context.Context, timezone, shopKey string
 		return result, err
 	}
 
-	// Overlap is a review signal, not proof of full settlement. Do not silently
-	// subtract it: an order can have both settled and pending transactions.
-	rows, err = s.db.QueryContext(ctx, `
-		WITH pending AS (
-		 SELECT u.*,(sales_receipt+freight_receipt
-		  -ABS(sales_chargeback)-ABS(freight_chargeback)) AS net_amount,
-		 EXISTS (SELECT 1 FROM temu_profit_settled_flows f WHERE f.shop_key=u.shop_key AND f.po_no=u.po_no)
-		 OR EXISTS (SELECT 1 FROM temu_profit_settled_parent_orders p WHERE p.shop_key=u.shop_key AND p.po_no=u.po_no) AS has_settlement
-		 FROM temu_profit_unsettle_orders u WHERE ($1='' OR shop_key=$1)
-		), orders AS (
-		 SELECT shop_key,currency,COUNT(*) AS orders,SUM(net_amount) AS net_amount,
-		 COUNT(*) FILTER (WHERE sales_receipt_after_discount<>0 OR freight_receipt_after_discount<>0) AS discounted_rows,
-		 COUNT(*) FILTER (WHERE has_settlement) AS overlap_orders,COALESCE(SUM(net_amount) FILTER (WHERE has_settlement),0) AS overlap_net_amount
-		 FROM pending GROUP BY 1,2
-		), labels AS (
-		 SELECT u.shop_key,u.currency,COUNT(*) AS label_rows,SUM(freight_amount) AS label_amount,
-		 COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM temu_profit_shipping_label_fees p WHERE p.billing_phase='posted'
-		  AND p.shop_key=u.shop_key AND p.package_no=u.package_no AND p.tracking_no=u.tracking_no
-		  AND p.bill_type=u.bill_type AND p.remark=u.remark)) AS posted_overlap_rows,
-		 COALESCE(SUM(freight_amount) FILTER (WHERE EXISTS (SELECT 1 FROM temu_profit_shipping_label_fees p WHERE p.billing_phase='posted'
-		  AND p.shop_key=u.shop_key AND p.package_no=u.package_no AND p.tracking_no=u.tracking_no
-		  AND p.bill_type=u.bill_type AND p.remark=u.remark)),0) AS posted_overlap_amount
-		 FROM temu_profit_shipping_label_fees u WHERE billing_phase='pending' AND ($1='' OR shop_key=$1) GROUP BY 1,2
-		)
-		SELECT COALESCE(o.shop_key,l.shop_key),COALESCE(o.currency,l.currency),COALESCE(orders,0),COALESCE(net_amount,0),
-		 COALESCE(discounted_rows,0),COALESCE(overlap_orders,0),COALESCE(overlap_net_amount,0),COALESCE(label_rows,0),COALESCE(label_amount,0),
-		 COALESCE(posted_overlap_rows,0),COALESCE(posted_overlap_amount,0)
-		FROM orders o FULL JOIN labels l ON l.shop_key=o.shop_key AND l.currency=o.currency ORDER BY 1,2
-	`, shopKey)
-	if err != nil {
-		return result, err
-	}
-	for rows.Next() {
-		var check ProfitPendingCheck
-		if err := rows.Scan(&check.ShopKey, &check.Currency, &check.Orders, &check.NetAmount, &check.DiscountedRows, &check.OverlapOrders,
-			&check.OverlapNetAmount, &check.LabelRows, &check.LabelAmount, &check.PostedOverlapRows, &check.PostedOverlapAmount); err != nil {
-			rows.Close()
-			return result, err
-		}
-		result.Pending = append(result.Pending, check)
-	}
-	err = rows.Err()
-	rows.Close()
+	result.Pending, err = s.queryProfitPendingChecks(ctx, shopKey)
 	if err != nil {
 		return result, err
 	}

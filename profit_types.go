@@ -209,6 +209,7 @@ type ProfitFileImportResult struct {
 }
 
 type ProfitImportResult struct {
+	PendingMode   string                   `json:"pending_mode"`
 	ShopKey       string                   `json:"shop_key"`
 	SourceKind    string                   `json:"source_kind"`
 	SourceName    string                   `json:"source_name"`
