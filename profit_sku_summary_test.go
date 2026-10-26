@@ -39,8 +39,8 @@ func TestProfitSKUSummaryRollsUpByPlatformSKU(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.db.ExecContext(ctx, `
-		INSERT INTO normalized_order_lines (order_id, source_line_key, platform_sku, warehouse_sku, quantity, warehouse_quantity, unit_price)
-		VALUES ($1, 'L1', $2, $3, 4, 4, 10)
+		INSERT INTO normalized_order_lines (order_id, source_line_key, platform_sku, warehouse_sku, quantity, warehouse_quantity, unit_price,currency)
+		VALUES ($1, 'L1', $2, $3, 4, 4, 10,'USD')
 	`, soldOrderID, platformSKU, warehouseSKU); err != nil {
 		t.Fatal(err)
 	}
@@ -58,9 +58,9 @@ func TestProfitSKUSummaryRollsUpByPlatformSKU(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.db.ExecContext(ctx, `
-		INSERT INTO temu_profit_settled_flows (shop_key, flow_id, trade_type, settle_amount, sku_ext_code, sku_name, received_at)
-		VALUES ($1, 'PSS-FLOW-1', '销售回款', 80, $2, 'Test Product', $3),
-		       ($1, 'PSS-FLOW-2', '销售冲回', -8, $2, 'Test Product', $3)
+		INSERT INTO temu_profit_settled_flows (shop_key, flow_id, trade_type, settle_amount, sku_ext_code, sku_name, received_at,currency)
+		VALUES ($1, 'PSS-FLOW-1', '销售回款', 80, $2, 'Test Product', $3,'USD'),
+		       ($1, 'PSS-FLOW-2', '销售冲回', -8, $2, 'Test Product', $3,'USD')
 	`, shopKey, platformSKU, now); err != nil {
 		t.Fatal(err)
 	}

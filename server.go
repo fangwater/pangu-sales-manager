@@ -72,6 +72,8 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/profit/report-status", s.profitReportStatus)
 	mux.HandleFunc("GET /api/profit/daily-summary", s.profitDailySummary)
 	mux.HandleFunc("GET /api/profit/sku-summary", s.profitSKUSummary)
+	mux.HandleFunc("GET /api/profit/settlement-attribution", s.profitSettlementAttribution)
+	mux.HandleFunc("GET /api/profit/settlement-attribution/export", s.exportProfitSettlementAttribution)
 	mux.HandleFunc("GET /api/profit/unsettled-summary", s.profitUnsettledSummary)
 	mux.HandleFunc("GET /api/profit/costs", s.procurementCosts)
 	mux.HandleFunc("GET /api/profit/reconciliation", s.profitReconciliation)

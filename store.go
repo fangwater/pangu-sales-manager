@@ -21,6 +21,9 @@ var profitSchemaSQL string
 //go:embed profit_reconciliation.sql
 var profitReconciliationSQL string
 
+//go:embed profit_attribution.sql
+var profitAttributionSQL string
+
 type Store struct {
 	db *sql.DB
 }
@@ -49,6 +52,10 @@ func openStore(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := db.ExecContext(ctx, profitReconciliationSQL); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply profit reconciliation: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, profitAttributionSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply profit attribution: %w", err)
 	}
 	return store, nil
 }

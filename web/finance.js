@@ -27,6 +27,16 @@ function bindFinanceReports() {
   document.getElementById("finance-sku-keyword").addEventListener("input", () => { state.profitSKU.search = document.getElementById("finance-sku-keyword").value; renderProfitSKUSummary(); });
   document.getElementById("finance-sku-sort").addEventListener("change", event => { state.profitSKU.sort = event.target.value; renderProfitSKUSummary(); });
   document.getElementById("finance-sku-export").addEventListener("click", exportFinanceSKU);
+  document.getElementById("profit-sku-currency").addEventListener("change", loadProfitSKUSummary);
+  document.getElementById("finance-attribution-form").addEventListener("submit", event => { event.preventDefault(); loadFinanceAttribution(1); });
+  document.getElementById("finance-attribution-status").addEventListener("change", () => loadFinanceAttribution(1));
+  document.getElementById("finance-attribution-reset").addEventListener("click", () => { document.getElementById("finance-attribution-form").reset(); loadFinanceAttribution(1); });
+  document.getElementById("finance-attribution-prev").addEventListener("click", () => loadFinanceAttribution(state.profitSKU.attribution.page - 1));
+  document.getElementById("finance-attribution-next").addEventListener("click", () => loadFinanceAttribution(state.profitSKU.attribution.page + 1));
+  document.getElementById("finance-attribution-export").addEventListener("click", () => {
+    if (!state.profitSKU.attribution.data) return;
+    const link = document.createElement("a"); link.href = `${APP_BASE}/api/profit/settlement-attribution/export?${financeAttributionParams()}`; link.download = "temu-settlement-attribution.csv"; link.click();
+  });
   document.getElementById("profit-unsettled-shop").addEventListener("change", event => { state.profitUnsettled.shopKey = event.target.value; loadProfitUnsettledSummary(); });
   document.getElementById("profit-unsettled-refresh").addEventListener("click", loadProfitUnsettledSummary);
   document.getElementById("finance-pending-keyword").addEventListener("input", renderFinancePendingSKUs);
@@ -200,24 +210,29 @@ function renderFinanceCharts(rows, totals, currencyOK) {
 
 async function loadProfitSKUSummary() {
   if (!financeDatesValid("profit-sku-start", "profit-sku-end")) return;
-  const report = state.profitSKU;
+  const report = state.profitSKU, token = Symbol(); report.requestToken = token;
+  report.attribution.controller?.abort(); report.loaded = false;
+  document.getElementById("finance-attribution-export").disabled = true;
   report.start = document.getElementById("profit-sku-start").value; report.end = document.getElementById("profit-sku-end").value;
   report.shopKey = document.getElementById("profit-sku-shop").value;
+  report.currency = document.getElementById("profit-sku-currency").value;
   // First visit follows the full available report range, rather than silently
   // showing a recent empty month while the only imported bills are older.
   if (!report.start && !report.end) {
     try {
       const daily = await api(`/api/profit/daily-summary?shop_key=${encodeURIComponent(report.shopKey)}&period=month`);
+      if (report.requestToken !== token) return;
       report.start = daily.data.range.start; report.end = daily.data.range.end;
     } catch (error) { showError(error.message); return; }
   }
-  const params = new URLSearchParams({ shop_key: report.shopKey });
+  const params = new URLSearchParams({ shop_key: report.shopKey, currency: report.currency });
   if (report.start) params.set("start", report.start);
   if (report.end) params.set("end", report.end);
   await financeLoad("profitSKU", "profit-sku-search", "finance-sku-notice", "finance-sku-export", [`/api/profit/sku-summary?${params}`, `/api/profit/report-status?${params}`], () => {
     if (report.data) { document.getElementById("profit-sku-start").value = report.data.range.start; document.getElementById("profit-sku-end").value = report.data.range.end; }
     renderProfitSKUSummary();
   });
+  if (report.requestToken === token && report.loaded) await loadFinanceAttribution(1);
 }
 
 function financeSKURows() {
@@ -226,19 +241,25 @@ function financeSKURows() {
 }
 
 function renderProfitSKUSummary() {
-  const report = state.profitSKU, rows = financeSKURows(), all = report.data?.rows || [], totals = FinanceCore.sumRows(all), currencyOK = financeCurrencyOK(report.status), hasSales = all.some(row => row.settled_rows > 0);
-  document.getElementById("finance-sku-metrics").innerHTML = [financeMetric("已到账销售回款", financeMoney(hasSales && currencyOK ? totals.sales_receipt_amount : null), "商品销售回款原额", "circle-dollar-sign", "featured"), financeMetric("已归因结算净额", financeMoney(hasSales && currencyOK ? totals.payback_amount : null), "仅含带商品标识的结算", "wallet"), financeMetric("商品销量", formatNumber(totals.units), `${formatNumber(all.length)} 个商品 SKU`, "package"), financeMetric("估算销售额", financeMoney(currencyOK && totals.estimated_sales_matched ? totals.estimated_sales_amount : null), `仅 ${formatNumber(totals.estimated_sales_matched)} 个已定价订单行`, "calculator")].join("");
-  financeNotice("finance-sku-notice", "商品回款按 SKU 汇总", currencyOK ? "运费与订单费用尚未完整分摊，商品净额未扣内部成本" : "账单含其他或未知币种，暂停 USD 合计");
+  const report = state.profitSKU, rows = financeSKURows(), all = report.data?.rows || [], totals = FinanceCore.sumRows(all), currencyOK = report.loaded && Boolean(report.data?.currency), hasSales = all.some(row => row.settled_rows > 0);
+  const money = value => financePendingMoney(value, report.data?.currency || report.currency);
+  const cell = (value, available) => financePendingCell(available ? value : null, report.data?.currency || report.currency);
+  setText("finance-sku-chart-currency", report.data?.currency || report.currency);
+  document.getElementById("finance-sku-metrics").innerHTML = [financeMetric("已到账销售回款", money(hasSales && currencyOK ? totals.sales_receipt_amount : null), "商品销售回款原额", "circle-dollar-sign", "featured"), financeMetric("已归因结算净额", money(hasSales && currencyOK ? totals.payback_amount : null), "含唯一 SKU ID / 单 SKU PO 匹配", "wallet"), financeMetric("商品销量", formatNumber(totals.units), `${formatNumber(all.length)} 个商品 SKU`, "package"), financeMetric("估算销售额", money(currencyOK && totals.estimated_sales_matched ? totals.estimated_sales_amount : null), `仅 ${formatNumber(totals.estimated_sales_matched)} 个已定价订单行`, "calculator")].join("");
+  financeNotice("finance-sku-notice", "商品回款按 SKU 汇总", currencyOK ? `币种 ${report.data.currency} · 多 SKU 及编码冲突保留未归因；商品净额未扣平台费用及内部成本` : "商品报表未加载");
   setText("profit-sku-range", `${report.data?.range.start || "—"} — ${report.data?.range.end || "—"} · ${rows.length} 个 SKU`);
-  document.getElementById("profit-sku-body").innerHTML = rows.map(row => `<tr><td><span class="finance-sku-code">${escapeHtml(row.platform_sku)}</span><span class="finance-product" title="${escapeHtml(row.sku_name)}">${escapeHtml(row.sku_name || "暂无名称")}</span></td><td class="num">${formatNumber(row.units)}</td>${financeAmountCell(row.sales_receipt_amount, currencyOK && row.settled_rows > 0)}${financeAmountCell(row.sales_chargeback_amount, currencyOK && row.settled_rows > 0)}${financeAmountCell(row.payback_amount, currencyOK && row.settled_rows > 0)}${financeAmountCell(row.estimated_sales_amount, currencyOK && row.estimated_sales_matched > 0)}<td class="num">${formatNumber(row.estimated_sales_matched)} / ${formatNumber(row.estimated_sales_total)}</td><td class="num">${formatNumber(row.refund_orders)}</td></tr>`).join("") || emptyRow(8, report.loaded ? "没有匹配的 SKU，请调整搜索或日期" : "报表数据暂不可用");
+  document.getElementById("profit-sku-body").innerHTML = rows.map(row => `<tr><td><span class="finance-sku-code">${escapeHtml(row.platform_sku)}</span><span class="finance-product" title="${escapeHtml(row.sku_name)}">${escapeHtml(row.sku_name || "暂无名称")}</span></td><td class="num">${formatNumber(row.units)}</td>${cell(row.sales_receipt_amount, currencyOK && row.settled_rows > 0)}${cell(row.freight_receipt_amount, currencyOK && row.settled_rows > 0)}${cell(row.sales_chargeback_amount, currencyOK && row.settled_rows > 0)}${cell(row.freight_chargeback_amount, currencyOK && row.settled_rows > 0)}${cell(row.payback_amount, currencyOK && row.settled_rows > 0)}<td class="num">${formatNumber(row.inferred_settled_rows)}</td>${cell(row.estimated_sales_amount, currencyOK && row.estimated_sales_matched > 0)}<td class="num">${formatNumber(row.estimated_sales_matched)} / ${formatNumber(row.estimated_sales_total)}</td><td class="num">${formatNumber(row.refund_orders)}</td></tr>`).join("") || emptyRow(11, report.loaded ? "没有匹配的 SKU" : "报表数据暂不可用");
   const sorted = all.filter(row => row.sales_receipt_amount > 0 && currencyOK).slice().sort((a, b) => b.sales_receipt_amount - a.sales_receipt_amount), top = sorted.slice(0, 10);
-  financeChart("financeSKU", "finance-sku-chart", { type: "bar", data: { labels: top.map(row => row.platform_sku), datasets: [{ label: "销售回款", data: top.map(row => row.sales_receipt_amount), backgroundColor: top.map((_, index) => index === 0 ? "#4f46e5" : "#a5b4fc"), borderRadius: 5, maxBarThickness: 20 }] }, options: financeChartOptions({ indexAxis: "y", plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => financeMoney(item.raw) } } }, scales: { x: { grid: { color: "#eef1f6" }, border: { display: false }, ticks: { color: "#64748b", font: { size: 12 } } }, y: { grid: { display: false }, border: { display: false }, ticks: { color: "#475569", font: { size: 11 }, callback: function(value) { const label = this.getLabelForValue(value); return label.length > 30 ? label.slice(0, 28) + "…" : label; } } } } }) });
+  financeChart("financeSKU", "finance-sku-chart", { type: "bar", data: { labels: top.map(row => row.platform_sku), datasets: [{ label: "销售回款", data: top.map(row => row.sales_receipt_amount), backgroundColor: top.map((_, index) => index === 0 ? "#4f46e5" : "#a5b4fc"), borderRadius: 5, maxBarThickness: 20 }] }, options: financeChartOptions({ indexAxis: "y", plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => money(item.raw) } } }, scales: { x: { grid: { color: "#eef1f6" }, border: { display: false }, ticks: { color: "#64748b", font: { size: 12 } } }, y: { grid: { display: false }, border: { display: false }, ticks: { color: "#475569", font: { size: 11 }, callback: function(value) { const label = this.getLabelForValue(value); return label.length > 30 ? label.slice(0, 28) + "…" : label; } } } } }) });
   document.getElementById("finance-sku-empty").hidden = top.length > 0;
   const mix = sorted.slice(0, 4).map(row => [row.platform_sku, row.sales_receipt_amount]), remaining = financeN(sorted.slice(4), "sales_receipt_amount");
   if (remaining) mix.push(["其他商品", remaining]);
-  financeDonut("financeSKUMix", "finance-sku-mix-chart", mix);
-  document.getElementById("finance-sku-mix-total").innerHTML = hasSales && currencyOK ? `<small>销售回款</small><strong>${financeShortMoney(totals.sales_receipt_amount)}</strong>` : '<small>暂无回款</small>';
-  document.getElementById("finance-sku-mix-legend").innerHTML = financeLegend(mix);
+  financeDonut("financeSKUMix", "finance-sku-mix-chart", mix, "money", money);
+  document.getElementById("finance-sku-mix-total").innerHTML = hasSales && currencyOK ? `<small>销售回款</small><strong>${escapeHtml(money(totals.sales_receipt_amount))}</strong>` : '<small>暂无回款</small>';
+  document.getElementById("finance-sku-mix-legend").innerHTML = financeLegend(mix, money);
+  document.getElementById("finance-attribution-totals").innerHTML = (report.data?.attribution || []).map(row => `<tr><td>${escapeHtml(financeShopName(row.shop_key))}</td><td>${escapeHtml(row.currency || "缺失")}</td>${financePendingCell(row.total_amount, row.currency)}${financePendingCell(row.direct_amount, row.currency)}${financePendingCell(row.matched_amount, row.currency)}${financePendingCell(row.unattributed_amount, row.currency)}<td class="num">${formatNumber(row.unattributed_rows)}</td></tr>`).join("") || emptyRow(7, "所选期间没有结算流水");
+  const currencies = new Set(["USD", "CNY", "EUR", "HKD", ...(report.data?.attribution || []).map(row => row.currency).filter(Boolean)]);
+  document.getElementById("profit-sku-currency").innerHTML = [...currencies].map(code => `<option value="${escapeHtml(code)}" ${code === report.currency ? "selected" : ""}>${escapeHtml(code)}</option>`).join("");
   lucide.createIcons();
 }
 
@@ -337,8 +358,8 @@ function exportFinanceSummary() {
 
 function exportFinanceSKU() {
   if (!state.profitSKU.loaded) return;
-  const currencyOK = financeCurrencyOK(state.profitSKU.status);
-  financeDownloadCSV(`temu-sku-finance-${state.profitSKU.data.range.start}-${state.profitSKU.data.range.end}.csv`, ["SKU", "商品", "销量", "估算销售额_USD", "已定价行", "总订单行", "销售回款_USD", "销售冲回_USD", "已归因结算净额_USD", "取消订单行"], financeSKURows().map(row => [row.platform_sku, row.sku_name, row.units, currencyOK && row.estimated_sales_matched ? row.estimated_sales_amount : "", row.estimated_sales_matched, row.estimated_sales_total, currencyOK && row.settled_rows > 0 ? row.sales_receipt_amount : "", currencyOK && row.settled_rows > 0 ? row.sales_chargeback_amount : "", currencyOK && row.settled_rows > 0 ? row.payback_amount : "", row.refund_orders]), "所选日期和搜索条件。订单级运费与费用未完整分摊，商品成本未接入，已归因净额不代表利润。");
+  const report = state.profitSKU, currency = report.data.currency;
+  financeDownloadCSV(`temu-sku-finance-${report.data.range.start}-${report.data.range.end}-${currency}.csv`, ["SKU", "商品", "币种", "销量", "估算销售额", "已定价行", "总订单行", "销售回款", "运费回款", "销售冲回", "运费冲回", "已归因结算净额", "匹配补全行", "取消订单行"], financeSKURows().map(row => [row.platform_sku, row.sku_name, currency, row.units, row.estimated_sales_matched ? row.estimated_sales_amount : "", row.estimated_sales_matched, row.estimated_sales_total, row.settled_rows ? row.sales_receipt_amount : "", row.settled_rows ? row.freight_receipt_amount : "", row.settled_rows ? row.sales_chargeback_amount : "", row.settled_rows ? row.freight_chargeback_amount : "", row.settled_rows ? row.payback_amount : "", row.inferred_settled_rows, row.refund_orders]), "所选日期、币种和商品搜索条件。结算仅归属原始 SKU、同店铺唯一 SKU ID 或单 SKU PO；多 SKU 及编码冲突保留未归因。商品净额未扣平台费用和内部成本。销量按下单日期，不按回款比例折算。");
 }
 
 function exportFinancePending() {
@@ -356,10 +377,42 @@ function financeWaterfall(id, key, totals, available) {
 
 function financeShortMoney(value) { return Math.abs(value) >= 1000 ? `${value < 0 ? "−" : ""}$${(Math.abs(value) / 1000).toFixed(1)}k` : financeMoney(value); }
 
-function financeDonut(key, id, items, unit = "money") {
-  financeChart(key, id, { type: "doughnut", data: { labels: items.map(item => item[0]), datasets: [{ data: items.map(item => item[1]), backgroundColor: financeColors, borderWidth: 3, borderColor: "#fff", hoverOffset: 4 }] }, options: { responsive: true, maintainAspectRatio: false, animation: false, cutout: "78%", plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => `${item.label}: ${unit === "count" ? formatNumber(item.raw) + " 个" : financeMoney(item.raw)}` } } } } });
+function financeDonut(key, id, items, unit = "money", moneyFormat = financeMoney) {
+  financeChart(key, id, { type: "doughnut", data: { labels: items.map(item => item[0]), datasets: [{ data: items.map(item => item[1]), backgroundColor: financeColors, borderWidth: 3, borderColor: "#fff", hoverOffset: 4 }] }, options: { responsive: true, maintainAspectRatio: false, animation: false, cutout: "78%", plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => `${item.label}: ${unit === "count" ? formatNumber(item.raw) + " 个" : moneyFormat(item.raw)}` } } } } });
 }
 
-function financeLegend(items) {
-  return items.map(([label, amount], index) => `<div><i style="background:${financeColors[index % financeColors.length]}"></i><span title="${escapeHtml(label)}">${escapeHtml(label)}</span><strong>${financeMoney(amount)}</strong></div>`).join("") || '<div class="finance-no-data">暂无对应数据</div>';
+function financeLegend(items, moneyFormat = financeMoney) {
+  return items.map(([label, amount], index) => `<div><i style="background:${financeColors[index % financeColors.length]}"></i><span title="${escapeHtml(label)}">${escapeHtml(label)}</span><strong>${escapeHtml(moneyFormat(amount))}</strong></div>`).join("") || '<div class="finance-no-data">暂无对应数据</div>';
+}
+
+function financeAttributionParams() {
+  const report = state.profitSKU;
+  return new URLSearchParams({ shop_key: report.shopKey, start: report.data.range.start, end: report.data.range.end, currency: report.data.currency, status: document.getElementById("finance-attribution-status").value, q: document.getElementById("finance-attribution-keyword").value.trim() });
+}
+async function loadFinanceAttribution(page = 1) {
+  const report = state.profitSKU.attribution;
+  report.controller?.abort(); const controller = new AbortController(); report.controller = controller;
+  report.data = null; report.page = Math.max(1, page);
+  document.getElementById("finance-attribution-export").disabled = true;
+  ["prev", "next"].forEach(key => document.getElementById(`finance-attribution-${key}`).disabled = true);
+  document.getElementById("finance-attribution-count").textContent = "";
+  if (!state.profitSKU.loaded) { document.getElementById("finance-attribution-body").innerHTML = emptyRow(13, "商品报表未加载"); return; }
+  const params = financeAttributionParams(); params.set("page", report.page); params.set("page_size", 30);
+  document.getElementById("finance-attribution-body").innerHTML = emptyRow(13, "正在读取结算明细");
+  try {
+    const response = await api(`/api/profit/settlement-attribution?${params}`, { signal: controller.signal });
+    if (controller !== report.controller) return;
+    report.data = response.data;
+    const names = { direct: "原始 SKU", sku_id: "SKU ID 匹配", po_single: "单 SKU PO 匹配", unattributed: "未归因" };
+    document.getElementById("finance-attribution-body").innerHTML = report.data.rows.map(row => `<tr><td>${escapeHtml(formatDateTime(row.received_at))}</td><td>${escapeHtml(financeShopName(row.shop_key))}</td><td>${escapeHtml(row.flow_id)}</td><td>${escapeHtml(row.po_no || "—")}</td><td>${escapeHtml(row.document_no || "—")}</td><td>${escapeHtml(row.trade_type)}</td><td>${escapeHtml(row.currency || "缺失")}</td>${financePendingCell(row.settle_amount, row.currency)}<td>${escapeHtml(row.source_sku || "—")}</td><td>${escapeHtml(row.platform_sku || "—")}</td><td>${escapeHtml(row.sku_name || "—")}</td><td>${financePill(names[row.attribution_method], row.attribution_method === "unattributed" ? "warning" : "muted")}</td><td>${escapeHtml(row.reason || "—")}</td></tr>`).join("") || emptyRow(13, "没有匹配的结算流水");
+    const pages = Math.max(1, Math.ceil(report.data.total / report.data.page_size));
+    document.getElementById("finance-attribution-count").textContent = `共 ${formatNumber(report.data.total)} 条`;
+    document.getElementById("finance-attribution-page").textContent = `${report.page} / ${pages}`;
+    document.getElementById("finance-attribution-prev").disabled = report.page <= 1;
+    document.getElementById("finance-attribution-next").disabled = report.page >= pages;
+    document.getElementById("finance-attribution-export").disabled = false;
+  } catch (error) {
+    if (error.name === "AbortError" || report.controller !== controller) return;
+    document.getElementById("finance-attribution-body").innerHTML = emptyRow(13, `结算明细读取失败：${error.message}`);
+  }
 }

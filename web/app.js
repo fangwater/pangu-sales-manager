@@ -16,7 +16,7 @@ const state = {
   skuPrices: { items: [], meta: {}, page: 1, pageSize: 30, loaded: false, controller: null },
   profit: { summary: null, lastResult: null },
   profitSummary: { period: "week", shopKey: "", start: "", end: "", data: null, status: null, loaded: false },
-  profitSKU: { start: "", end: "", shopKey: "", search: "", sort: "sales_receipt_amount", data: null, loaded: false },
+  profitSKU: { start: "", end: "", shopKey: "", currency: "USD", attribution: { page: 1, data: null }, search: "", sort: "sales_receipt_amount", data: null, loaded: false },
   profitUnsettled: { shopKey: "", data: null, loaded: false, reconciliation: { page: 1, data: null } },
 };
 
@@ -30,7 +30,7 @@ const viewMeta = {
   "sku-prices": ["SKU 价格", "TEMU 分钟价格解析结果"],
   profit: ["账单导入", "TEMU 财务数据来源与导入记录"],
   "profit-summary": ["财务总览", "TEMU · 回款、费用与收支明细"],
-  "profit-sku": ["商品回款", "商品回款排行、分布与明细"],
+  "profit-sku": ["商品回款", ""],
   "profit-unsettled": ["待结算", ""],
   "system-guide": ["报表说明", "数据流 · 计算示意 · 实际报表"],
 };

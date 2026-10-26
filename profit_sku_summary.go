@@ -2,15 +2,12 @@ package main
 
 import (
 	"context"
+	"sort"
 	"time"
 )
 
-// ProfitSKUSummaryRow is one platform SKU's rollup over an explicit date
-// range (not day-bucketed — this is a one-shot aggregate, not a scrolling
-// list). Only the columns backed by a table that actually carries a SKU key
-// are included: 履约违规/买家拒付/面单费类 have no SKU field anywhere in the
-// source data (only package/tracking/PO/order numbers), so they cannot be
-// attributed here and stay on the shop-level daily summary only.
+// ProfitSKUSummaryRow includes explicit SKU settlements and uniquely resolved
+// shop/PO or SKU-ID matches. Unresolved flows remain in Attribution totals.
 type ProfitSKUSummaryRow struct {
 	PlatformSKU string `json:"platform_sku"`
 	SKUName     string `json:"sku_name"`
@@ -27,6 +24,7 @@ type ProfitSKUSummaryRow struct {
 	FreightChargebackAmount float64 `json:"freight_chargeback_amount"`
 	PaybackAmount           float64 `json:"payback_amount"`
 	SettledRows             int64   `json:"settled_rows"`
+	InferredSettledRows     int64   `json:"inferred_settled_rows"`
 
 	EstimatedSalesAmount  float64 `json:"estimated_sales_amount"`
 	EstimatedSalesMatched int64   `json:"estimated_sales_matched"`
@@ -34,8 +32,10 @@ type ProfitSKUSummaryRow struct {
 }
 
 type ProfitSKUSummaryResponse struct {
-	Range DateRange             `json:"range"`
-	Rows  []ProfitSKUSummaryRow `json:"rows"`
+	Currency    string                   `json:"currency"`
+	Range       DateRange                `json:"range"`
+	Rows        []ProfitSKUSummaryRow    `json:"rows"`
+	Attribution []ProfitAttributionTotal `json:"attribution"`
 }
 
 type profitSKUUnit struct {
@@ -63,6 +63,7 @@ type profitSKUSettled struct {
 	SalesChargebackAmount   float64
 	FreightChargebackAmount float64
 	SettledRows             int64
+	InferredSettledRows     int64
 }
 
 // profitSKUSummary rolls TEMU sales/refund/settlement data up by platform SKU
@@ -70,7 +71,11 @@ type profitSKUSettled struct {
 // sku_ext_code (settled_flows) lines up exactly with normalized_order_lines'
 // platform_sku, verified against real data.
 func (s *Store) profitSKUSummary(ctx context.Context, timezone string, start, end time.Time, shopKey string) (ProfitSKUSummaryResponse, error) {
-	units, err := s.queryProfitSKUUnits(ctx, start, end, shopKey)
+	return s.profitSKUSummaryCurrency(ctx, timezone, start, end, shopKey, "USD")
+}
+
+func (s *Store) profitSKUSummaryCurrency(ctx context.Context, timezone string, start, end time.Time, shopKey, currency string) (ProfitSKUSummaryResponse, error) {
+	units, err := s.queryProfitSKUUnits(ctx, start, end, shopKey, currency)
 	if err != nil {
 		return ProfitSKUSummaryResponse{}, err
 	}
@@ -78,7 +83,7 @@ func (s *Store) profitSKUSummary(ctx context.Context, timezone string, start, en
 	if err != nil {
 		return ProfitSKUSummaryResponse{}, err
 	}
-	settled, err := s.queryProfitSKUSettledFlow(ctx, start, end, shopKey)
+	settled, err := s.queryProfitSKUSettledFlow(ctx, start, end, shopKey, currency)
 	if err != nil {
 		return ProfitSKUSummaryResponse{}, err
 	}
@@ -112,6 +117,7 @@ func (s *Store) profitSKUSummary(ctx context.Context, timezone string, start, en
 		row.FreightChargebacks += sf.FreightChargebacks
 		row.PaybackAmount += sf.PaybackAmount
 		row.SettledRows += sf.SettledRows
+		row.InferredSettledRows += sf.InferredSettledRows
 		row.SalesReceiptAmount += sf.SalesReceiptAmount
 		row.FreightReceiptAmount += sf.FreightReceiptAmount
 		row.SalesChargebackAmount += sf.SalesChargebackAmount
@@ -126,19 +132,26 @@ func (s *Store) profitSKUSummary(ctx context.Context, timezone string, start, en
 		rows = append(rows, *row)
 	}
 
+	sort.Slice(rows, func(i, j int) bool { return rows[i].PlatformSKU < rows[j].PlatformSKU })
+	attribution, err := s.queryProfitAttributionTotals(ctx, start, end, shopKey)
+	if err != nil {
+		return ProfitSKUSummaryResponse{}, err
+	}
 	return ProfitSKUSummaryResponse{
-		Range: DateRange{Start: start.Format("2006-01-02"), End: end.AddDate(0, 0, -1).Format("2006-01-02")},
-		Rows:  rows,
+		Attribution: attribution,
+		Currency:    currency,
+		Range:       DateRange{Start: start.Format("2006-01-02"), End: end.AddDate(0, 0, -1).Format("2006-01-02")},
+		Rows:        rows,
 	}, nil
 }
 
-func (s *Store) queryProfitSKUUnits(ctx context.Context, start, end time.Time, shopKey string) ([]profitSKUUnit, error) {
+func (s *Store) queryProfitSKUUnits(ctx context.Context, start, end time.Time, shopKey, currency string) ([]profitSKUUnit, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT l.platform_sku, MAX(COALESCE(NULLIF(l.product_name,''), sku.product_name)),
 		       COALESCE(SUM(l.quantity), 0),
-		       COUNT(*) FILTER (WHERE l.unit_price IS NOT NULL),
+		       COUNT(*) FILTER (WHERE l.unit_price IS NOT NULL AND l.currency=$4),
 		       COUNT(*),
-		       COALESCE(SUM(l.quantity * l.unit_price) FILTER (WHERE l.unit_price IS NOT NULL), 0)
+		       COALESCE(SUM(l.quantity * l.unit_price) FILTER (WHERE l.unit_price IS NOT NULL AND l.currency=$4), 0)
 		FROM normalized_orders o
 		JOIN normalized_order_lines l ON l.order_id=o.id
 		LEFT JOIN canonical_skus sku ON sku.warehouse_sku=l.warehouse_sku
@@ -146,7 +159,7 @@ func (s *Store) queryProfitSKUUnits(ctx context.Context, start, end time.Time, s
 		  AND o.occurred_at >= $1 AND o.occurred_at < $2
 		  AND ($3='' OR o.shop_key=$3)
 		GROUP BY 1
-	`, start, end, shopKey)
+	`, start, end, shopKey, currency)
 	if err != nil {
 		return nil, err
 	}
@@ -187,22 +200,22 @@ func (s *Store) queryProfitSKUOrderRefunds(ctx context.Context, start, end time.
 	return result, rows.Err()
 }
 
-func (s *Store) queryProfitSKUSettledFlow(ctx context.Context, start, end time.Time, shopKey string) ([]profitSKUSettled, error) {
+func (s *Store) queryProfitSKUSettledFlow(ctx context.Context, start, end time.Time, shopKey, currency string) ([]profitSKUSettled, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT f.sku_ext_code, MAX(f.sku_name),
+		SELECT f.platform_sku, MAX(f.sku_name),
 		       COUNT(*) FILTER (WHERE f.trade_type='销售冲回'),
 		       COUNT(*) FILTER (WHERE f.trade_type='运费冲回'),
 		       COALESCE(SUM(f.settle_amount), 0),
 		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='销售回款'), 0),
 		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='运费回款'), 0),
 		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='销售冲回'), 0),
-		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='运费冲回'), 0), COUNT(*)
-		FROM temu_profit_settled_flows f
-		WHERE f.sku_ext_code <> '' AND f.received_at IS NOT NULL
+		       COALESCE(SUM(f.settle_amount) FILTER (WHERE f.trade_type='运费冲回'), 0), COUNT(*),COUNT(*) FILTER(WHERE f.attribution_method<>'direct')
+		FROM profit_settlement_attribution f
+		WHERE f.platform_sku <> '' AND f.received_at IS NOT NULL
 		  AND f.received_at >= $1 AND f.received_at < $2
-		  AND ($3='' OR f.shop_key=$3)
+		  AND ($3='' OR f.shop_key=$3) AND f.currency=$4
 		GROUP BY 1
-	`, start, end, shopKey)
+	`, start, end, shopKey, currency)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +224,7 @@ func (s *Store) queryProfitSKUSettledFlow(ctx context.Context, start, end time.T
 	for rows.Next() {
 		var row profitSKUSettled
 		if err := rows.Scan(&row.SKUExtCode, &row.SKUName, &row.SalesChargebacks, &row.FreightChargebacks, &row.PaybackAmount,
-			&row.SalesReceiptAmount, &row.FreightReceiptAmount, &row.SalesChargebackAmount, &row.FreightChargebackAmount, &row.SettledRows); err != nil {
+			&row.SalesReceiptAmount, &row.FreightReceiptAmount, &row.SalesChargebackAmount, &row.FreightChargebackAmount, &row.SettledRows, &row.InferredSettledRows); err != nil {
 			return nil, err
 		}
 		result = append(result, row)
