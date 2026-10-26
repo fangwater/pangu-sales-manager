@@ -117,6 +117,9 @@ func (s *Syncer) Run(ctx context.Context) (counts SyncCounts, err error) {
 			counts.Orders += orderCount
 			counts.Lines += lineCount
 		}
+		if packageErr := s.syncProfitPackages(ctx, shop.key, shop.schema); packageErr != nil {
+			err = errors.Join(err, fmt.Errorf("sync Temu packages %s: %w", shop.key, packageErr))
+		}
 		if sourceErr != nil {
 			err = errors.Join(err, fmt.Errorf("sync Temu %s: %w", shop.key, sourceErr))
 		}

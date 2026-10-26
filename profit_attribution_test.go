@@ -13,9 +13,13 @@ import (
 	"time"
 )
 
-func attributionFixture(t *testing.T) (*Store, context.Context, time.Time, time.Time) {
+func attributionFixture(t *testing.T, timeouts ...time.Duration) (*Store, context.Context, time.Time, time.Time) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	timeout := 30 * time.Second
+	if len(timeouts) > 0 {
+		timeout = timeouts[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	t.Cleanup(cancel)
 	store := openTestProfitStore(t, ctx)
 	if store == nil {

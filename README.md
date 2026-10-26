@@ -80,3 +80,11 @@ PO 按店铺、PO、币种分别核销销售回款、运费回款及两类冲回
 原始 SKU 编码优先。编码缺失时，仅使用同店铺唯一 SKU ID 映射，或商品证据完整且只有一个 SKU 的同店铺 PO。证据来自标准订单行、已结算流水及 PO 聚合账单商品。多 SKU、缺少商品编码、映射冲突和缺少 PO 的流水保留未归因，不按金额或数量擅自分摊。归因视图不修改源表，聚合账单只提供商品证据，不重复计入回款。
 
 `GET /api/profit/settlement-attribution` 返回分页交易明细，支持相同日期及店铺参数，以及 `currency`、`status=all|direct|matched|unattributed`、`q`（流水/PO/单据/SKU 字面匹配）、`page`、`page_size`（最大 200）。`GET /api/profit/settlement-attribution/export` 按相同条件导出全部匹配流水，不受分页限制；保留原始金额、币种、到账时间、原始 SKU、归属 SKU 及依据。平台费用和内部成本仍不在此 SKU 净额内。
+
+## 订单费用及公共费用分摊
+
+页面 `?view=profit-ledger` 提供已出账逐笔收支、订单 / SKU 归因、分摊依据、SKU 收支及 CSV。`GET /api/profit/ledger` 和 `/api/profit/ledger/export` 使用同一筛选口径：`start`、`end`（含当天）、`shop_key`、`source`、`currency`、`status`、`q`、`include_undated=1`；查询额外支持分页。原始费用一笔一行，候选订单和商品保存在明细中，不因关联增加收入或费用。按币种核对：已归因净额 + 未归因净额 = 收支净额。
+
+`GET/PUT /api/profit/allocation-policy` 管理全局分摊规则；写入需 `X-Pangu-Request: finance`、同源和当前版本。默认按申报金额比例，也可按数量或暂停自动分摊。计算明细含来源、申报币种、数量、申报价、占比、金额、尾差和版本；规则变更留痕，报表按当前规则重新计算。采购成本已确认 FIFO，但批次扣成本及毛利尚未实现。原商品回款页保持原始 SKU 和唯一匹配口径，公共费用分摊见订单费用页。
+
+包裹读取 Temu `temu_order_details` 中调用成功的包裹及 `temu_shipments` 中 `shipped` 的记录，经 `temu_shipment_orders` 关联 PO。每店独立快照和刷新时间，不依赖销售订单游标；源库故障保留旧快照。完整需求进度见 [需求清单](docs/temu-finance-requirements.md)。

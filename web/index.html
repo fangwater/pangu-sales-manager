@@ -25,6 +25,7 @@
       <nav class="nav-list" aria-label="主导航">
         <button class="nav-item active" data-view="profit-summary" aria-label="财务总览"><i data-lucide="layout-dashboard"></i><span>财务总览</span></button>
         <button class="nav-item" data-view="profit-sku" aria-label="商品回款"><i data-lucide="chart-bar"></i><span>商品回款</span></button>
+        <button class="nav-item" data-view="profit-ledger" aria-label="订单费用"><i data-lucide="list-checks"></i><span>订单费用</span></button>
         <button class="nav-item" data-view="profit-unsettled" aria-label="待结算"><i data-lucide="hourglass"></i><span>待结算</span></button>
         <button class="nav-item" data-view="profit" aria-label="账单导入"><i data-lucide="file-input"></i><span>账单导入</span></button>
         <a class="nav-item" href="/pangu-restock/?view=costs" aria-label="采购与物流成本"><i data-lucide="receipt-text"></i><span>采购与物流成本</span></a>
@@ -343,7 +344,7 @@
       </section>
 
       <section class="view finance-view active" id="view-profit-summary">
-        <div class="finance-toolbar"><div class="finance-tabs"><button class="selected" type="button">收支总览</button><button type="button" data-open-view="profit-sku">商品回款</button><button type="button" data-open-view="profit-unsettled">待结算</button></div><button class="secondary-command" id="finance-export" type="button"><i data-lucide="download"></i>导出报表</button></div>
+        <div class="finance-toolbar"><div class="finance-tabs"><button class="selected" type="button">收支总览</button><button type="button" data-open-view="profit-sku">商品回款</button><button type="button" data-open-view="profit-ledger">订单费用</button><button type="button" data-open-view="profit-unsettled">待结算</button></div><button class="secondary-command" id="finance-export" type="button"><i data-lucide="download"></i>导出报表</button></div>
         <form class="finance-filter" id="finance-summary-form"><label><span>店铺</span><select id="profit-summary-shop"><option value="">全部 TEMU 店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label><label><span>期间</span><select id="finance-range"><option value="ledger">有账单期间</option><option value="all">全部数据</option><option value="30">最近 30 天</option><option value="month">本月</option><option value="previous">上月</option><option value="custom">自定义</option></select></label><label><span>开始</span><input type="date" id="finance-start"></label><label><span>结束</span><input type="date" id="finance-end"></label><div class="segmented" aria-label="财务周期"><button class="active" type="button" data-summary-period="week">周</button><button type="button" data-summary-period="day">日</button><button type="button" data-summary-period="month">月</button></div><button class="icon-command" id="profit-summary-refresh" type="submit" title="刷新报表" aria-label="刷新报表"><i data-lucide="refresh-cw"></i></button></form>
         <div class="finance-notice" id="finance-notice" aria-live="polite"></div>
         <div class="finance-metrics" id="finance-summary-metrics"></div>
@@ -356,8 +357,26 @@
         <details class="finance-estimate-panel"><summary><span><i data-lucide="chart-column"></i>订单销量与估算销售额</span><span id="finance-order-note"></span><i data-lucide="chevron-down"></i></summary><div class="finance-chart"><canvas id="finance-coverage-chart" role="img" aria-label="订单销量与已定价销售额"></canvas></div></details>
       </section>
 
+      <section class="view finance-view" id="view-profit-ledger">
+        <div class="finance-toolbar"><div class="finance-tabs"><button type="button" data-open-view="profit-summary">收支总览</button><button type="button" data-open-view="profit-sku">商品回款</button><button class="selected" type="button">订单费用</button><button type="button" data-open-view="profit-unsettled">待结算</button></div><button class="secondary-command" id="finance-ledger-export" type="button" disabled><i data-lucide="download"></i>导出费用明细</button></div>
+        <form class="finance-filter" id="finance-ledger-form">
+          <label><span>店铺</span><select id="finance-ledger-shop" name="shop_key"><option value="">全部 TEMU 店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label>
+          <label><span>开始</span><input type="date" id="finance-ledger-start" name="start" required></label><label><span>结束</span><input type="date" id="finance-ledger-end" name="end" required></label>
+          <label><span>费用来源</span><select name="source" id="finance-ledger-source"><option value="">全部来源</option><option value="settlement">结算流水</option><option value="shipping">发货面单费</option><option value="return_merchant">退货面单费·商家仓</option><option value="return_third_party">退货面单费·第三方仓</option><option value="buyer_chargeback">买家拒付</option><option value="fulfillment_delay">履约违规·延迟到货</option><option value="fulfillment_false_ship">履约违规·虚假发货</option><option value="platform_return">退货面单费平台承担</option><option value="disposal">处置费</option></select></label>
+          <label><span>币种</span><select name="currency" id="finance-ledger-currency"><option value="">全部币种</option><option value="CNY">CNY</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="HKD">HKD</option></select></label>
+          <label><span>关联状态</span><select name="status" id="finance-ledger-status"><option value="all">全部状态</option><option value="matched">SKU 已归因</option><option value="order_unmatched">订单未唯一关联</option><option value="sku_unattributed">SKU 未归因</option><option value="conflict">关联冲突</option></select></label>
+          <label><span>订单 / 包裹 / 运单 / 商品</span><input type="search" name="q" id="finance-ledger-keyword" maxlength="200"></label>
+          <label class="finance-checkbox"><input type="checkbox" name="include_undated" value="1">包含无费用日期</label>
+          <button class="primary-command" id="finance-ledger-query" type="submit"><i data-lucide="search"></i>查询</button><button class="secondary-command" id="finance-ledger-reset" type="button">重置</button>
+        </form>
+        <article class="panel"><div class="panel-heading"><h2>成本与分摊规则</h2><span id="finance-allocation-version"></span></div><form class="finance-filter" id="finance-allocation-form"><label><span>公共费用分摊</span><select id="finance-allocation-method"><option value="declared_value">按商品申报金额占比</option><option value="quantity">按商品数量占比</option><option value="manual">暂停自动分摊</option></select></label><button class="secondary-command" id="finance-allocation-save" type="submit" disabled>保存规则</button></form><div class="finance-table-note">规则适用于当前全部店铺和历史报表；保存后重新计算，原始账单不变。采购成本口径：FIFO；批次日期及出库成本尚未接入。</div></article>
+        <article class="panel finance-table-panel"><div class="panel-heading"><h2>费用归因对账</h2></div><div class="table-wrap finance-table-scroll"><table><thead><tr><th>店铺</th><th>币种</th><th class="num">笔数</th><th class="num">收支净额</th><th class="num">订单已关联</th><th class="num">SKU 已归因净额</th><th class="num">SKU 未归因净额</th><th class="num">未归因笔数</th></tr></thead><tbody id="finance-ledger-totals"></tbody></table></div><div class="finance-table-note">金额按币种分别合计。收支净额 = SKU 已归因净额 + SKU 未归因净额；未扣内部成本。</div></article>
+        <article class="panel finance-table-panel"><div class="panel-heading"><h2>SKU 收支</h2><button class="secondary-command" id="finance-ledger-sku-export" type="button" disabled>导出 SKU 收支</button></div><div class="table-wrap finance-table-scroll"><table><thead><tr><th>店铺</th><th>MSKU</th><th>币种</th><th class="num">结算净额</th><th class="num">平台费用净额</th><th class="num">收支净额</th><th class="num">来源笔数</th></tr></thead><tbody id="finance-ledger-skus"></tbody></table></div><div class="finance-table-note">包含唯一匹配及公共费用分摊，使用当前费用筛选条件；未扣采购、头程等内部成本。</div></article>
+        <article class="panel finance-table-panel"><div class="panel-heading"><h2>订单费用明细</h2><span id="finance-ledger-count"></span></div><div class="table-wrap finance-table-scroll"><table id="finance-ledger-table"><thead><tr><th>费用时间</th><th>店铺</th><th>费用名</th><th>源单据号</th><th>PO 单号</th><th>费用包裹号</th><th>费用运单号</th><th>归属 MSKU</th><th>商品名称</th><th>币种</th><th class="num">收支金额</th><th>订单关联</th><th>SKU 归因</th><th>未归因原因</th><th>操作</th></tr></thead><tbody id="finance-ledger-body"></tbody></table></div><div class="panel-heading"><span></span><div class="pager"><button class="secondary-command" id="finance-ledger-prev" type="button" disabled>上一页</button><span id="finance-ledger-page">1 / 1</span><button class="secondary-command" id="finance-ledger-next" type="button" disabled>下一页</button></div></div><div class="finance-table-note">仅含已出账费用与结算流水。合并发货及多 SKU 费用按配置分摊，申报金额或数量不完整时保留未归因；费用日期不等同付款日期，到账时间仅使用结算流水原值。</div><div class="finance-table-note" id="finance-ledger-sync"></div></article>
+      </section>
+
       <section class="view finance-view" id="view-profit-sku">
-        <div class="finance-toolbar"><div class="finance-tabs"><button type="button" data-open-view="profit-summary">收支总览</button><button class="selected" type="button">商品回款</button><button type="button" data-open-view="profit-unsettled">待结算</button></div><button class="secondary-command" id="finance-sku-export" type="button"><i data-lucide="download"></i>导出商品报表</button></div>
+        <div class="finance-toolbar"><div class="finance-tabs"><button type="button" data-open-view="profit-summary">收支总览</button><button class="selected" type="button">商品回款</button><button type="button" data-open-view="profit-ledger">订单费用</button><button type="button" data-open-view="profit-unsettled">待结算</button></div><button class="secondary-command" id="finance-sku-export" type="button"><i data-lucide="download"></i>导出商品报表</button></div>
         <form class="finance-filter" id="finance-sku-form"><label><span>店铺</span><select id="profit-sku-shop"><option value="">全部 TEMU 店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label><label><span>开始</span><input type="date" id="profit-sku-start"></label><label><span>结束</span><input type="date" id="profit-sku-end"></label><label><span>币种</span><select id="profit-sku-currency"><option value="USD">USD</option><option value="CNY">CNY</option><option value="EUR">EUR</option><option value="HKD">HKD</option></select></label><button class="primary-command" id="profit-sku-search" type="submit"><i data-lucide="search"></i>查询</button><button class="icon-command" id="profit-sku-refresh" type="button" title="刷新商品报表" aria-label="刷新商品报表"><i data-lucide="refresh-cw"></i></button></form>
         <div class="finance-notice" id="finance-sku-notice" aria-live="polite"></div><div class="finance-metrics" id="finance-sku-metrics"></div>
         <article class="panel finance-table-panel"><div class="panel-heading"><h2>结算归因对账</h2></div><div class="table-wrap finance-table-scroll"><table><thead><tr><th>店铺</th><th>币种</th><th class="num">结算总净额</th><th class="num">原始 SKU 净额</th><th class="num">匹配补全净额</th><th class="num">未归因净额</th><th class="num">未归因行</th></tr></thead><tbody id="finance-attribution-totals"></tbody></table></div><div class="finance-table-note">原始 SKU 净额＋匹配补全净额＋未归因净额＝结算总净额。匹配仅使用同店铺唯一 SKU ID 或单 SKU PO；多 SKU、编码冲突和缺失保留未归因。</div></article>
@@ -391,6 +410,11 @@
     </main>
   </div>
 
+  <dialog id="finance-ledger-dialog" class="ledger-dialog">
+    <div class="dialog-heading"><h2>费用明细</h2><button id="finance-ledger-close" class="icon-command quiet" type="button" aria-label="关闭">×</button></div>
+    <div id="finance-ledger-detail"></div>
+  </dialog>
+
   <dialog id="mapping-dialog">
     <form method="dialog" id="mapping-form">
       <div class="dialog-heading"><div><h2>编辑 SKU 映射</h2><span id="mapping-dialog-source">--</span></div><button class="icon-command quiet" type="button" data-close-dialog title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></div>
@@ -404,8 +428,9 @@
   <script src="./vendor/chart.umd.min.js"></script>
   <script src="./vendor/lucide.min.js"></script>
   <script src="./finance-core.js?v=20261007-3"></script>
-  <script src="./finance.js?v=20261026-2"></script>
-  <script src="./system-guide.js?v=20261026-2"></script>
-  <script src="./app.js?v=20261026-2"></script>
+  <script src="./finance.js?v=20261026-3"></script>
+  <script src="./finance-ledger.js?v=20261026-3"></script>
+  <script src="./system-guide.js?v=20261026-3"></script>
+  <script src="./app.js?v=20261026-3"></script>
 </body>
 </html>

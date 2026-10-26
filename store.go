@@ -24,6 +24,15 @@ var profitReconciliationSQL string
 //go:embed profit_attribution.sql
 var profitAttributionSQL string
 
+//go:embed profit_ledger.sql
+var profitLedgerSQL string
+
+//go:embed profit_allocation.sql
+var profitAllocationSQL string
+
+//go:embed profit_allocation_query.sql
+var profitAllocationQuerySQL string
+
 type Store struct {
 	db *sql.DB
 }
@@ -56,6 +65,18 @@ func openStore(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := db.ExecContext(ctx, profitAttributionSQL); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply profit attribution: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, profitLedgerSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply profit ledger: %w", err)
+	}
+	allocationView := strings.ReplaceAll(profitAllocationQuerySQL, "{{LEDGER_ROWS}}", "SELECT * FROM profit_ledger")
+	allocationRange := strings.ReplaceAll(profitAllocationQuerySQL, "{{LEDGER_ROWS}}", `SELECT * FROM profit_ledger WHERE ((occurred_at>=p_start AND occurred_at<p_end) OR (p_undated AND occurred_at IS NULL)) AND (p_shop='' OR shop_key=p_shop) AND (p_source='' OR source=p_source) AND (p_currency='' OR currency=p_currency)`)
+	allocationSchema := profitAllocationSQL + "\nCREATE OR REPLACE VIEW profit_ledger_allocated AS " + allocationView + ";\n" +
+		`CREATE OR REPLACE FUNCTION profit_ledger_for_range(p_start timestamptz,p_end timestamptz,p_shop text,p_source text,p_currency text,p_undated boolean) RETURNS SETOF profit_ledger_allocated LANGUAGE sql STABLE AS $ledger$` + allocationRange + "$ledger$;"
+	if _, err := db.ExecContext(ctx, allocationSchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply profit allocation: %w", err)
 	}
 	return store, nil
 }

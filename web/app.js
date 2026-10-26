@@ -16,6 +16,7 @@ const state = {
   skuPrices: { items: [], meta: {}, page: 1, pageSize: 30, loaded: false, controller: null },
   profit: { summary: null, lastResult: null },
   profitSummary: { period: "week", shopKey: "", start: "", end: "", data: null, status: null, loaded: false },
+  profitLedger: { page: 1, data: null, loaded: false },
   profitSKU: { start: "", end: "", shopKey: "", currency: "USD", attribution: { page: 1, data: null }, search: "", sort: "sales_receipt_amount", data: null, loaded: false },
   profitUnsettled: { shopKey: "", data: null, loaded: false, reconciliation: { page: 1, data: null } },
 };
@@ -30,6 +31,7 @@ const viewMeta = {
   "sku-prices": ["SKU 价格", "TEMU 分钟价格解析结果"],
   profit: ["账单导入", "TEMU 财务数据来源与导入记录"],
   "profit-summary": ["财务总览", "TEMU · 回款、费用与收支明细"],
+  "profit-ledger": ["订单费用", ""],
   "profit-sku": ["商品回款", ""],
   "profit-unsettled": ["待结算", ""],
   "system-guide": ["报表说明", "数据流 · 计算示意 · 实际报表"],
@@ -81,6 +83,7 @@ function bindEvents() {
   document.getElementById("profit-upload-form").addEventListener("submit", uploadProfitFile);
   document.getElementById("profit-refresh").addEventListener("click", loadProfitSummary);
   bindFinanceReports();
+  bindFinanceLedger();
   bindSystemGuide();
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
@@ -91,7 +94,7 @@ async function switchView(view) {
   document.querySelectorAll(".view").forEach(section => section.classList.toggle("active", section.id === `view-${view}`));
   document.getElementById("page-title").textContent = viewMeta[view][0];
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
-  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled", "system-guide"];
+  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-ledger", "profit-sku", "profit-unsettled", "system-guide"];
   document.getElementById("global-filters").hidden = customFilterViews.includes(view);
   updateTopbarForView();
   if (view === "mappings") await loadMappings();
@@ -101,6 +104,7 @@ async function switchView(view) {
   if (view === "sku-prices" && !state.skuPrices.loaded) await loadSKUPrices();
   if (view === "profit") await loadProfitSummary();
   if (view === "profit-summary" && !state.profitSummary.loaded) await loadProfitDailySummary();
+  if (view === "profit-ledger" && !state.profitLedger.loaded) await loadFinanceLedger();
   if (view === "profit-sku" && !state.profitSKU.loaded) await loadProfitSKUSummary();
   if (view === "profit-unsettled" && !state.profitUnsettled.loaded) await loadProfitUnsettledSummary();
   if (view === "system-guide") await loadSystemGuideStatus();
@@ -480,7 +484,7 @@ function formatActivityTime(value) { return value ? new Intl.DateTimeFormat("zh-
 function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 
 function updateTopbarForView() {
-  const snapshotView = ["activity-prices", "sku-prices", "profit", "profit-summary", "profit-sku", "profit-unsettled", "system-guide"].includes(state.view);
+  const snapshotView = ["activity-prices", "sku-prices", "profit", "profit-summary", "profit-ledger", "profit-sku", "profit-unsettled", "system-guide"].includes(state.view);
   document.getElementById("sync-button").hidden = snapshotView;
   if (state.view === "activity-prices") {
     setText("updated-at", `活动快照 ${formatDateTime(state.activity.meta.synced_at)}`);
@@ -490,6 +494,8 @@ function updateTopbarForView() {
     setText("updated-at", `账单导入 ${formatDateTime(state.profit.summary?.latest_import?.completed_at || state.profit.summary?.latest_import?.started_at)}`);
   } else if (state.view === "profit-summary") {
     setText("updated-at", `统计区间 ${document.getElementById("finance-start").value || "--"} — ${document.getElementById("finance-end").value || "--"}`);
+  } else if (state.view === "profit-ledger") {
+    setText("updated-at", `统计区间 ${document.getElementById("finance-ledger-start").value || "--"} — ${document.getElementById("finance-ledger-end").value || "--"}`);
   } else if (state.view === "profit-sku") {
     setText("updated-at", `统计区间 ${state.profitSKU.data?.range?.start || "--"} ~ ${state.profitSKU.data?.range?.end || "--"}`);
   } else if (state.view === "profit-unsettled") {
@@ -565,6 +571,7 @@ async function uploadProfitFile(event) {
     const response = await api("/api/profit/import", { method: "POST", body: form });
     state.profit.lastResult = response.data;
     state.profitSummary.loaded = false;
+    state.profitLedger.loaded = false;
     state.profitSKU.loaded = false;
     state.profitUnsettled.loaded = false;
     await loadProfitSummary();
