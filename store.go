@@ -36,6 +36,12 @@ var profitAllocationQuerySQL string
 //go:embed margin_schema.sql
 var marginSchemaSQL string
 
+//go:embed ledger_review_query.sql
+var ledgerReviewQuerySQL string
+
+//go:embed ledger_review_schema.sql
+var ledgerReviewSchemaSQL string
+
 type Store struct {
 	db *sql.DB
 }
@@ -73,6 +79,10 @@ func openStore(ctx context.Context, databaseURL string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply profit ledger: %w", err)
 	}
+	if _, err := db.ExecContext(ctx, ledgerReviewSchemaSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply ledger reviews: %w", err)
+	}
 	allocationView := strings.ReplaceAll(profitAllocationQuerySQL, "{{LEDGER_ROWS}}", "SELECT * FROM profit_ledger")
 	allocationRange := strings.ReplaceAll(profitAllocationQuerySQL, "{{LEDGER_ROWS}}", `SELECT * FROM profit_ledger WHERE ((occurred_at>=p_start AND occurred_at<p_end) OR (p_undated AND occurred_at IS NULL)) AND (p_shop='' OR shop_key=p_shop) AND (p_source='' OR source=p_source) AND (p_currency='' OR currency=p_currency)`)
 	allocationSchema := profitAllocationSQL + "\nCREATE OR REPLACE VIEW profit_ledger_allocated AS " + allocationView + ";\n" +
@@ -80,6 +90,14 @@ func openStore(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := db.ExecContext(ctx, allocationSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply profit allocation: %w", err)
+	}
+	reviewView := strings.ReplaceAll(ledgerReviewQuerySQL, "{{LEDGER_ROWS}}", "SELECT * FROM profit_ledger_allocated")
+	reviewRange := strings.ReplaceAll(ledgerReviewQuerySQL, "{{LEDGER_ROWS}}", "SELECT * FROM profit_ledger_for_range(p_start,p_end,p_shop,p_source,p_currency,p_undated)")
+	reviewSchema := "CREATE OR REPLACE VIEW profit_ledger_reviewed AS " + reviewView + ";\n" +
+		`CREATE OR REPLACE FUNCTION profit_reviewed_ledger_for_range(p_start timestamptz,p_end timestamptz,p_shop text,p_source text,p_currency text,p_undated boolean) RETURNS SETOF profit_ledger_reviewed LANGUAGE sql STABLE AS $review$` + reviewRange + "$review$;"
+	if _, err := db.ExecContext(ctx, reviewSchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply reviewed ledger: %w", err)
 	}
 	if _, err := db.ExecContext(ctx, marginSchemaSQL); err != nil {
 		db.Close()

@@ -27,7 +27,7 @@ func parseProfitLedgerFilter(r *http.Request, timezone string) (profitLedgerFilt
 	if f.status == "" {
 		f.status = "all"
 	}
-	if !map[string]bool{"all": true, "matched": true, "order_unmatched": true, "sku_unattributed": true, "conflict": true}[f.status] {
+	if !map[string]bool{"all": true, "matched": true, "order_unmatched": true, "sku_unattributed": true, "conflict": true, "non_order": true, "review_stale": true}[f.status] {
 		return f, fmt.Errorf("关联状态无效")
 	}
 	if !map[string]bool{"": true, "settlement": true, "shipping": true, "return_merchant": true, "return_third_party": true, "buyer_chargeback": true, "fulfillment_delay": true, "fulfillment_false_ship": true, "platform_return": true, "disposal": true}[f.source] {
@@ -43,8 +43,8 @@ func (f profitLedgerFilter) args() []any {
 }
 
 const profitLedgerWhere = `((occurred_at >= $1 AND occurred_at < $2) OR ($8 AND occurred_at IS NULL)) AND ($3='' OR shop_key=$3) AND ($4='' OR source=$4)
- AND ($5='all' OR ($5='matched' AND allocation_status IN ('matched','allocated')) OR ($5='order_unmatched' AND order_status<>'matched') OR ($5='sku_unattributed' AND allocation_status='unattributed') OR ($5='conflict' AND order_status='conflict'))
- AND ($6='' OR currency=$6) AND ($7='' OR source_reference ILIKE $7 OR order_reference ILIKE $7 OR po_no ILIKE $7 OR package_no ILIKE $7 OR tracking_no ILIKE $7 OR platform_sku ILIKE $7 OR products::text ILIKE $7 OR package_evidence::text ILIKE $7)`
+ AND ($5='all' OR ($5='matched' AND allocation_status IN ('matched','allocated')) OR ($5='order_unmatched' AND order_status<>'matched') OR ($5='sku_unattributed' AND allocation_status='unattributed') OR ($5='conflict' AND order_status='conflict') OR ($5='non_order' AND allocation_status='non_order') OR ($5='review_stale' AND review->>'status'='stale'))
+ AND ($6='' OR currency=$6) AND ($7='' OR source_reference ILIKE $7 OR order_reference ILIKE $7 OR po_no ILIKE $7 OR package_no ILIKE $7 OR tracking_no ILIKE $7 OR platform_sku ILIKE $7 OR products::text ILIKE $7 OR package_evidence::text ILIKE $7 OR allocations::text ILIKE $7)`
 
 type profitLedgerResponse struct {
 	Rows        []json.RawMessage `json:"rows"`
@@ -80,12 +80,12 @@ func (s *APIServer) profitLedger(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "prepare finance ledger", err)
 		return
 	}
-	err = tx.QueryRowContext(ctx, `WITH filtered AS MATERIALIZED(SELECT * FROM profit_ledger_for_range($1,$2,$3,$4,$6,$8) WHERE `+profitLedgerWhere+`),
+	err = tx.QueryRowContext(ctx, `WITH filtered AS MATERIALIZED(SELECT * FROM profit_reviewed_ledger_for_range($1,$2,$3,$4,$6,$8) WHERE `+profitLedgerWhere+`),
  paged AS(SELECT * FROM filtered ORDER BY occurred_at DESC NULLS LAST,source,source_id DESC LIMIT $9 OFFSET $10),
- totals AS(SELECT shop_key,currency,COUNT(*) rows,SUM(amount) amount,COUNT(*) FILTER(WHERE order_status='matched') order_matched_rows,
+ totals AS(SELECT shop_key,currency,COUNT(*) rows,SUM(amount) amount,COUNT(*) FILTER(WHERE order_status='matched' OR (review->>'status'='active' AND allocation_status='allocated')) order_matched_rows,
  COUNT(*) FILTER(WHERE allocation_status IN ('matched','allocated')) sku_matched_rows,COALESCE(SUM(attributed_amount),0) sku_matched_amount,
- COUNT(*) FILTER(WHERE allocation_status='unattributed') unattributed_rows,COALESCE(SUM(unattributed_amount),0) unattributed_amount FROM filtered GROUP BY 1,2),
- sku_entries AS(SELECT entry_key,shop_key,currency,source,platform_sku,amount FROM filtered WHERE sku_status='matched'
+ COUNT(*) FILTER(WHERE allocation_status='unattributed') unattributed_rows,COALESCE(SUM(unattributed_amount),0) unattributed_amount,COALESCE(SUM(non_order_amount),0) non_order_amount FROM filtered GROUP BY 1,2),
+ sku_entries AS(SELECT entry_key,shop_key,currency,source,platform_sku,amount FROM filtered WHERE allocation_status='matched'
  UNION ALL SELECT f.entry_key,f.shop_key,f.currency,f.source,a->>'platform_sku',(a->>'amount')::numeric FROM filtered f CROSS JOIN LATERAL jsonb_array_elements(f.allocations) a WHERE allocation_status='allocated'),
  sku_totals AS(SELECT shop_key,currency,platform_sku,COUNT(DISTINCT entry_key) rows,COALESCE(SUM(amount) FILTER(WHERE source='settlement'),0) settlement_amount,COALESCE(SUM(amount) FILTER(WHERE source<>'settlement'),0) fee_amount,SUM(amount) net_amount FROM sku_entries GROUP BY 1,2,3)
  SELECT (SELECT COUNT(*) FROM filtered),COALESCE((SELECT jsonb_agg(to_jsonb(paged) ORDER BY occurred_at DESC NULLS LAST,source,source_id DESC) FROM paged),'[]'::jsonb),
@@ -133,8 +133,8 @@ func (s *APIServer) exportProfitLedger(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT entry_key,shop_key,source,source_reference,fee_name,order_reference,po_no,package_no,tracking_no,COALESCE(sku_id::text,''),platform_sku,currency,original_amount::text,amount::text,
  COALESCE(to_char(occurred_at AT TIME ZONE $9,'YYYY-MM-DD HH24:MI:SS'),''),COALESCE(to_char(paid_at AT TIME ZONE $9,'YYYY-MM-DD HH24:MI:SS'),''),COALESCE(to_char(order_at AT TIME ZONE $9,'YYYY-MM-DD HH24:MI:SS'),''),
- order_status,allocation_status,allocation_reason,products::text,array_to_string(candidate_pos,';'),package_evidence::text,remark,allocations::text
- FROM profit_ledger_for_range($1,$2,$3,$4,$6,$8) WHERE `+profitLedgerWhere+` ORDER BY occurred_at DESC NULLS LAST,source,source_id DESC`, append(f.args(), timezone)...)
+ order_status,allocation_status,allocation_reason,products::text,array_to_string(candidate_pos,';'),package_evidence::text,remark,allocations::text,non_order_amount::text,COALESCE(review::text,'')
+ FROM profit_reviewed_ledger_for_range($1,$2,$3,$4,$6,$8) WHERE `+profitLedgerWhere+` ORDER BY occurred_at DESC NULLS LAST,source,source_id DESC`, append(f.args(), timezone)...)
 	if err != nil {
 		s.internalError(w, "export finance ledger", err)
 		return
@@ -147,7 +147,7 @@ func (s *APIServer) exportProfitLedger(w http.ResponseWriter, r *http.Request) {
 	}
 	writer := csv.NewWriter(w)
 	writer.UseCRLF = true
-	headers := []string{"明细编号", "店铺", "来源", "源单据号", "费用名", "原始订单编号", "PO 单号", "费用包裹号", "费用运单号", "源 SKU ID", "归属 MSKU", "币种", "原始金额", "收支金额", "费用时间（" + timezone + "）", "到账时间（" + timezone + "）", "下单时间（" + timezone + "）", "订单关联状态", "SKU 归因状态", "未归因原因", "订单商品（含 ID、MSKU、属性、名称）", "候选 PO", "包裹关联依据", "备注", "分摊明细（含依据、金额、尾差、规则版本）"}
+	headers := []string{"明细编号", "店铺", "来源", "源单据号", "费用名", "原始订单编号", "PO 单号", "费用包裹号", "费用运单号", "源 SKU ID", "归属 MSKU", "币种", "原始金额", "收支金额", "费用时间（" + timezone + "）", "到账时间（" + timezone + "）", "下单时间（" + timezone + "）", "订单关联状态", "SKU 归因状态", "未归因原因", "订单商品（含 ID、MSKU、属性、名称）", "候选 PO", "包裹关联依据", "备注", "分摊明细（含依据、金额、尾差、规则版本）", "已确认非订单净额", "人工核对记录"}
 	if err := writer.Write(headers); err != nil {
 		return
 	}
@@ -162,7 +162,7 @@ func (s *APIServer) exportProfitLedger(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for i := range values {
-			if i != 12 && i != 13 {
+			if i != 12 && i != 13 && i != 25 {
 				values[i] = profitCSVText(values[i])
 			}
 		}

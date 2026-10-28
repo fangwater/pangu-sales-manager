@@ -87,7 +87,7 @@ function bindEvents() {
   bindFinanceReports();
   bindFinanceLedger();
   bindSystemGuide();
-  bindMargin(); bindEvidence();
+  bindMargin(); bindEvidence(); bindLedgerReview();
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
 

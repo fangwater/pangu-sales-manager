@@ -55,15 +55,17 @@ func (s *APIServer) marginSource(w http.ResponseWriter, r *http.Request) {
  'product_name',l.product_name,'variant_name',l.variant_name,'sku_id',l.platform_sku_id::text,'product_sku_id',l.platform_product_sku_id::text,
  'product_id',COALESCE(l.raw_payload->>'goodsId',l.raw_payload->>'productId',''),'site',o.site,
  'source_item_count',o.source_item_count,'normalized_line_count',(SELECT count(*) FROM normalized_order_lines x WHERE x.order_id=o.id)) item FROM cohort o LEFT JOIN normalized_order_lines l ON l.order_id=o.id),
- cash AS MATERIALIZED(SELECT * FROM profit_ledger_for_range('1900-01-01'::timestamptz,$3,$4,'','',true)),
+ cash AS MATERIALIZED(SELECT * FROM profit_reviewed_ledger_for_range('1900-01-01'::timestamptz,$3,$4,'','',true)),
  cohort_cash_keys AS MATERIALIZED(
  SELECT c.entry_key FROM cash c JOIN cohort o ON o.shop_key=c.shop_key AND o.source_order_no=c.po_no
  UNION SELECT c.entry_key FROM cash c CROSS JOIN LATERAL unnest(c.candidate_pos) p(po_no) JOIN cohort o ON o.shop_key=c.shop_key AND o.source_order_no=p.po_no
- UNION SELECT c.entry_key FROM cash c WHERE c.allocation_status='unattributed' AND (c.occurred_at >= $1 OR c.occurred_at IS NULL)),
+ UNION SELECT c.entry_key FROM cash c CROSS JOIN LATERAL jsonb_array_elements(c.allocations) a JOIN cohort o ON o.shop_key=c.shop_key AND o.source_order_no=a->>'po_no'
+ UNION SELECT c.entry_key FROM cash c CROSS JOIN LATERAL jsonb_array_elements_text(c.review->'orders') p(po_no) JOIN cohort o ON o.shop_key=c.shop_key AND o.source_order_no=p.po_no
+ UNION SELECT c.entry_key FROM cash c WHERE c.allocation_status IN ('unattributed','non_order') AND (c.occurred_at >= $1 OR c.occurred_at IS NULL)),
  selected_cash AS(SELECT c.* FROM cash c JOIN cohort_cash_keys k USING(entry_key)),
  evidence AS(SELECT jsonb_build_object('entry_key',c.entry_key,'shop_key',c.shop_key,'source',c.source,'source_reference',c.source_reference,'fee_name',c.fee_name,'order_no',c.po_no,'platform_sku',c.platform_sku,
  'currency',c.currency,'amount',c.amount::text,'original_amount',c.original_amount::text,'date',(c.occurred_at AT TIME ZONE $5)::date::text,'occurred_at',c.occurred_at,'paid_at',c.paid_at,
- 'package_no',c.package_no,'tracking_no',c.tracking_no,'order_status',c.order_status,'sku_status',c.sku_status,'allocation_status',c.allocation_status,'allocation_reason',c.allocation_reason,
+ 'package_no',c.package_no,'tracking_no',c.tracking_no,'order_status',c.order_status,'sku_status',c.sku_status,'allocation_status',c.allocation_status,'allocation_reason',c.allocation_reason,'review',c.review,
  'allocations',COALESCE((SELECT jsonb_agg(a||jsonb_build_object('amount',a->>'amount','weight',a->>'weight','total_weight',a->>'total_weight')) FROM jsonb_array_elements(c.allocations) a),'[]'::jsonb)) item FROM selected_cash c)
  SELECT COALESCE((SELECT jsonb_agg(item ORDER BY item->>'shop_key',item->>'order_no',item->>'line_id') FROM items),'[]'::jsonb),COALESCE((SELECT jsonb_agg(item ORDER BY item->>'entry_key') FROM evidence),'[]'::jsonb),
  COALESCE((SELECT jsonb_agg(payload||jsonb_build_object('id',id,'version',version) ORDER BY id) FROM profit_accounting_records WHERE deleted_at IS NULL AND ($4='' OR payload->>'shop_key'=$4 OR kind='metadata')),'[]'::jsonb),
