@@ -103,6 +103,7 @@ type TemuProfitDisposalFee struct {
 
 // TemuProfitSettledFlow 映射对账中心-账务明细 / 结算，以及结算数据-已到账款项-PO明细账单。
 type TemuProfitSettledFlow struct {
+	OriginalAmount                string
 	ShopKey                       string
 	FlowID                        string
 	BatchNo                       string
@@ -129,6 +130,7 @@ type TemuProfitSettledFlow struct {
 
 // TemuProfitSettledParentOrder 映射结算数据-已到账款项-po聚合账单的 PO 金额行。
 type TemuProfitSettledParentOrder struct {
+	OriginalAmounts             map[string]string
 	ShopKey                     string
 	PONo                        string
 	Currency                    string
@@ -178,18 +180,19 @@ type TemuProfitUnsettleSKU struct {
 }
 
 type ProfitImportBatch struct {
-	File        string
-	Kind        string
-	Shipping    []TemuProfitShippingLabelFee
-	Returns     []TemuProfitReturnLabelFee
-	Chargebacks []TemuProfitBuyerChargeback
-	Violations  []TemuProfitFulfillmentViolation
-	Platforms   []TemuProfitPlatformReturnLabelFee
-	Disposals   []TemuProfitDisposalFee
-	Settled     []TemuProfitSettledFlow
-	Parents     []TemuProfitSettledParentOrder
-	Unsettles   []TemuProfitUnsettleOrder
-	Warnings    []string
+	SourceSHA256 string
+	File         string
+	Kind         string
+	Shipping     []TemuProfitShippingLabelFee
+	Returns      []TemuProfitReturnLabelFee
+	Chargebacks  []TemuProfitBuyerChargeback
+	Violations   []TemuProfitFulfillmentViolation
+	Platforms    []TemuProfitPlatformReturnLabelFee
+	Disposals    []TemuProfitDisposalFee
+	Settled      []TemuProfitSettledFlow
+	Parents      []TemuProfitSettledParentOrder
+	Unsettles    []TemuProfitUnsettleOrder
+	Warnings     []string
 }
 
 type ProfitTableStat struct {

@@ -31,6 +31,7 @@ const viewMeta = {
   "sku-prices": ["SKU 价格", "TEMU 分钟价格解析结果"],
   profit: ["账单导入", "TEMU 财务数据来源与导入记录"],
   "profit-summary": ["财务总览", "TEMU · 回款、费用与收支明细"],
+  "profit-bills": ["已到账账单核对", ""],
   "profit-ledger": ["订单费用", ""],
   "profit-margin": ["订单毛利", ""],
   "profit-evidence": ["财务补录与核对", ""],
@@ -87,7 +88,7 @@ function bindEvents() {
   bindFinanceReports();
   bindFinanceLedger();
   bindSystemGuide();
-  bindMargin(); bindEvidence(); bindLedgerReview();
+  bindMargin(); bindEvidence(); bindLedgerReview(); bindBillComparison();
   document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById("mapping-dialog").close()));
 }
 
@@ -97,7 +98,7 @@ async function switchView(view) {
   document.querySelectorAll(".view").forEach(section => section.classList.toggle("active", section.id === `view-${view}`));
   document.getElementById("page-title").textContent = viewMeta[view][0];
   document.getElementById("page-subtitle").textContent = viewMeta[view][1];
-  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-ledger", "profit-margin", "profit-evidence", "profit-sku", "profit-unsettled", "system-guide"];
+  const customFilterViews = ["mappings", "orders", "activity-prices", "sku-prices", "profit", "profit-summary", "profit-bills", "profit-ledger", "profit-margin", "profit-evidence", "profit-sku", "profit-unsettled", "system-guide"];
   document.getElementById("global-filters").hidden = customFilterViews.includes(view);
   updateTopbarForView();
   if (view === "mappings") await loadMappings();
@@ -107,6 +108,7 @@ async function switchView(view) {
   if (view === "sku-prices" && !state.skuPrices.loaded) await loadSKUPrices();
   if (view === "profit") await loadProfitSummary();
   if (view === "profit-summary" && !state.profitSummary.loaded) await loadProfitDailySummary();
+  if (view === "profit-bills") await loadBillComparison();
   if (view === "profit-ledger" && !state.profitLedger.loaded) await loadFinanceLedger();
   if (view === "profit-margin" && !marginState.data) await loadMargin();
   if (view === "profit-evidence" && !evidenceState.loaded) await loadEvidence();

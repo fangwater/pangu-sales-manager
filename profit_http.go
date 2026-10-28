@@ -82,6 +82,10 @@ func (s *APIServer) profitUnsettledSummary(writer http.ResponseWriter, request *
 }
 
 func (s *APIServer) importProfit(writer http.ResponseWriter, request *http.Request) {
+	evidenceOnly := request.URL.Path == "/api/profit/bill-evidence/import"
+	if evidenceOnly && !financeWriteOK(writer, request) {
+		return
+	}
 	if !profitImporting.CompareAndSwap(false, true) {
 		writeJSON(writer, http.StatusConflict, apiResponse{Success: false, Error: "利润表正在导入"})
 		return
@@ -92,6 +96,9 @@ func (s *APIServer) importProfit(writer http.ResponseWriter, request *http.Reque
 	if err := request.ParseMultipartForm(profitUploadMaxBytes); err != nil {
 		writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: "上传文件不能超过 32MB"})
 		return
+	}
+	if request.MultipartForm != nil {
+		defer request.MultipartForm.RemoveAll()
 	}
 	shopKey := strings.TrimSpace(request.FormValue("shop_key"))
 	if shopKey == "" {
@@ -134,6 +141,15 @@ func (s *APIServer) importProfit(writer http.ResponseWriter, request *http.Reque
 
 	ctx, cancel := context.WithTimeout(request.Context(), 4*time.Minute)
 	defer cancel()
+	if evidenceOnly {
+		result, err := s.store.importBillEvidence(ctx, shopKey, batches)
+		if err != nil {
+			writeJSON(writer, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
+			return
+		}
+		writeJSON(writer, http.StatusOK, apiResponse{Success: true, Data: result})
+		return
+	}
 	runID, err := s.store.beginProfitImport(ctx, shopKey, sourceKind, filename)
 	if err != nil {
 		s.internalError(writer, "start temu profit import", err)

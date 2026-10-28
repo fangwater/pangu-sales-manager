@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -150,7 +151,7 @@ func parseProfitWorkbook(filename string, data []byte, opts profitParseOptions) 
 	if err != nil {
 		return ProfitImportBatch{}, err
 	}
-	batch := ProfitImportBatch{File: filename, Kind: kind}
+	batch := ProfitImportBatch{File: filename, Kind: kind, SourceSHA256: fmt.Sprintf("%x", sha256.Sum256(data))}
 	switch kind {
 	case ProfitFileShippingPosted:
 		batch.Shipping, err = parseShippingLabelFees(firstRows, opts.ShopKey, ProfitBillingPosted, opts.Location)
@@ -519,7 +520,8 @@ func parseSettledFlows(rows [][]string, shopKey string, loc *time.Location) ([]T
 			return nil, rowError(index+start+1, err)
 		}
 		out = append(out, TemuProfitSettledFlow{
-			ShopKey: shopKey, FlowID: cell(row, 0), BatchNo: cell(row, 1), PONo: cell(row, 2),
+			OriginalAmount: strings.TrimSpace(strings.ReplaceAll(cell(row, 5), ",", "")),
+			ShopKey:        shopKey, FlowID: cell(row, 0), BatchNo: cell(row, 1), PONo: cell(row, 2),
 			DocumentNo: cell(row, 3), TradeType: cell(row, 4), SettleAmount: amount,
 			SKUID: skuID, SKUName: cell(row, 7), SKUExtCode: cell(row, 8),
 			Quantity: qty, DeclaredPrice: declared, IsActivityPrice: activity,
@@ -601,6 +603,12 @@ func parseSettledParentOrderRow(row []string, shopKey string) (TemuProfitSettled
 		return TemuProfitSettledParentOrder{}, err
 	}
 	order := TemuProfitSettledParentOrder{
+		OriginalAmounts: map[string]string{
+			"sales_receipt":      strings.TrimSpace(strings.ReplaceAll(cell(row, 8), ",", "")),
+			"freight_receipt":    strings.TrimSpace(strings.ReplaceAll(cell(row, 11), ",", "")),
+			"sales_chargeback":   strings.TrimSpace(strings.ReplaceAll(cell(row, 10), ",", "")),
+			"freight_chargeback": strings.TrimSpace(strings.ReplaceAll(cell(row, 13), ",", "")),
+		},
 		ShopKey: shopKey, PONo: cell(row, 0), Currency: cell(row, 7),
 		SalesReceipt: sales, SalesReceiptAfterDiscount: salesAfter, SalesChargeback: salesBack,
 		FreightReceipt: freight, FreightReceiptAfterDiscount: freightAfter, FreightChargeback: freightBack,

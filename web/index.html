@@ -28,6 +28,7 @@
         <button class="nav-item" data-view="profit-margin"><i data-lucide="calculator"></i><span>订单毛利</span></button>
         <button class="nav-item" data-view="profit-evidence"><i data-lucide="file-pen-line"></i><span>财务补录与核对</span></button>
         <button class="nav-item" data-view="profit-ledger" aria-label="订单费用"><i data-lucide="list-checks"></i><span>订单费用</span></button>
+        <button class="nav-item" data-view="profit-bills"><i data-lucide="files"></i><span>已到账账单核对</span></button>
         <button class="nav-item" data-view="profit-unsettled" aria-label="待结算"><i data-lucide="hourglass"></i><span>待结算</span></button>
         <button class="nav-item" data-view="profit" aria-label="账单导入"><i data-lucide="file-input"></i><span>账单导入</span></button>
         <a class="nav-item" href="/pangu-restock/?view=cost-fifo"><i data-lucide="list-ordered"></i><span>FIFO 商品成本</span></a>
@@ -346,6 +347,15 @@
         </article>
       </section>
 
+      <section class="view finance-view" id="view-profit-bills">
+        <div class="finance-toolbar"><div class="margin-actions"><button class="secondary-command" id="bill-import-open" type="button">导入核对依据</button><button class="secondary-command" id="bill-export" type="button" disabled>导出全部明细</button></div></div>
+        <form class="margin-filters panel" id="bill-filter"><label>店铺<select name="shop_key"><option value="">全部店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label><label>PO 单号<input name="q" maxlength="200"></label><label>币种<select name="currency"><option value="">全部币种</option><option>CNY</option><option>USD</option><option>EUR</option><option>HKD</option></select></label><label>状态<select name="status"><option value="">全部</option><option value="difference">存在差异</option><option value="missing">缺少依据</option><option value="review">待核对</option><option value="matched">金额一致</option></select></label><div class="margin-actions"><button class="primary-command" type="submit" id="bill-query">查询</button><button class="secondary-command" type="button" id="bill-reset">重置</button></div></form>
+        <p class="margin-note">按现有累计账单核对四类款项及结算流水。PO 聚合账单无账期字段，不能据此确认某月完整性。缺少来源显示未提供；冲回按负数比较，原始金额保留。核对依据不计入收入。</p>
+        <div class="margin-summary" id="bill-summary" aria-live="polite"></div>
+        <article class="panel margin-table"><div class="table-scroll"><table><thead><tr><th>店铺 / PO</th><th>币种</th><th>款项</th><th>账务明细</th><th>PO 明细</th><th>PO 聚合</th><th>账务明细 − PO 明细</th><th>PO 明细 − PO 聚合</th><th>状态 / 原因</th><th>操作</th></tr></thead><tbody id="bill-body"></tbody></table></div><div class="finance-pagination"><span id="bill-count"></span><div><button class="secondary-command" id="bill-prev" type="button">上一页</button><button class="secondary-command" id="bill-next" type="button">下一页</button></div></div></article>
+        <details class="panel margin-table"><summary>核对依据文件（最近 30 次，按店铺）</summary><div class="table-scroll"><table><thead><tr><th>导入时间 / 店铺</th><th>来源</th><th>文件</th><th>明细数</th><th>SHA256</th></tr></thead><tbody id="bill-files"></tbody></table></div></details>
+      </section>
+
       <section class="view finance-view active" id="view-profit-summary">
         <div class="finance-toolbar"><div class="finance-tabs"><button class="selected" type="button">收支总览</button><button type="button" data-open-view="profit-sku">商品回款</button><button type="button" data-open-view="profit-ledger">订单费用</button><button type="button" data-open-view="profit-unsettled">待结算</button></div><button class="secondary-command" id="finance-export" type="button"><i data-lucide="download"></i>导出报表</button></div>
         <form class="finance-filter" id="finance-summary-form"><label><span>店铺</span><select id="profit-summary-shop"><option value="">全部 TEMU 店铺</option><option value="panda-homes">Panda Homes</option><option value="panda-buy">Panda Buy</option></select></label><label><span>期间</span><select id="finance-range"><option value="ledger">有账单期间</option><option value="all">全部数据</option><option value="30">最近 30 天</option><option value="month">本月</option><option value="previous">上月</option><option value="custom">自定义</option></select></label><label><span>开始</span><input type="date" id="finance-start"></label><label><span>结束</span><input type="date" id="finance-end"></label><div class="segmented" aria-label="财务周期"><button class="active" type="button" data-summary-period="week">周</button><button type="button" data-summary-period="day">日</button><button type="button" data-summary-period="month">月</button></div><button class="icon-command" id="profit-summary-refresh" type="submit" title="刷新报表" aria-label="刷新报表"><i data-lucide="refresh-cw"></i></button></form>
@@ -445,13 +455,14 @@
   <script src="./vendor/lucide.min.js"></script>
   <script src="./finance-core.js?v=20261007-3"></script>
   <script src="./finance.js?v=20261026-3"></script>
-  <link rel="stylesheet" href="./margin.css?v=20261028-1">
+  <link rel="stylesheet" href="./margin.css?v=20261028-2">
   <dialog id="margin-dialog"><div class="dialog-heading"><h2 id="margin-dialog-title">核算明细</h2><button class="icon-command quiet" id="margin-close" type="button" aria-label="关闭">×</button></div><div id="margin-detail"></div></dialog>
   <script src="./finance-margin.js?v=20261028-1"></script>
   <script src="./finance-ledger.js?v=20261028-1"></script>
   <dialog id="ledger-review-dialog"><div class="dialog-heading"><h2>费用核对</h2><button type="button" class="icon-command quiet" id="ledger-review-close" aria-label="关闭">×</button></div><div id="ledger-review-content"></div></dialog>
   <script src="./ledger-review.js?v=20261028-1"></script>
   <script src="./system-guide.js?v=20261026-3"></script>
-  <script src="./app.js?v=20261028-1"></script>
+  <script src="./bill-comparison.js?v=20261028-1"></script>
+  <script src="./app.js?v=20261028-2"></script>
 </body>
 </html>

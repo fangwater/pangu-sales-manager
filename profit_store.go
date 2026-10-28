@@ -142,6 +142,9 @@ func (s *Store) applyProfitImportMode(ctx context.Context, shopKey string, batch
 		if err != nil {
 			return result, fmt.Errorf("%s: %w", batch.File, err)
 		}
+		if _, _, err := recordBillEvidence(ctx, tx, shopKey, batch); err != nil {
+			return result, fmt.Errorf("%s: %w", batch.File, err)
+		}
 		fileResult.Tables = stats
 		result.Files = append(result.Files, fileResult)
 		result.FilesImported++

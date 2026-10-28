@@ -42,6 +42,9 @@ var ledgerReviewQuerySQL string
 //go:embed ledger_review_schema.sql
 var ledgerReviewSchemaSQL string
 
+//go:embed bill_comparison.sql
+var billComparisonSQL string
+
 type Store struct {
 	db *sql.DB
 }
@@ -66,6 +69,10 @@ func openStore(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, err := db.ExecContext(ctx, profitSchemaSQL); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply temu profit schema: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, billComparisonSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply bill comparison: %w", err)
 	}
 	if _, err := db.ExecContext(ctx, profitReconciliationSQL); err != nil {
 		db.Close()
