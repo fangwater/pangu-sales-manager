@@ -35,4 +35,4 @@
 
 成本管理 API 由备货提供 `/api/costs/accounting`、`/api/costs/fifo`、`/api/costs/margin`；财务提供只读数量 / 仓储 / 财务快照源以及 `/api/profit/margin` 代理。财务 `/api/profit/accounting-records` 管理补录，`/api/profit/margin/snapshots` 保存及查看完整核算快照。源接口失败返回明确错误，不用旧快照或零金额替代。
 
-2026-10-28 补充接口：`GET /api/profit/ledger/review?entry_key=...&order_no=...` 读取同店商品、当前版本和最近 100 次审计；`POST /api/profit/ledger/review/preview` 预览；`POST /api/profit/ledger/review` 保存；`POST /api/profit/ledger/review/withdraw` 撤销。写入须携带 `X-Pangu-Request: finance`、版本及凭证；保存同时校验原账单指纹。人工金额只接受原流水同方向或零，合计必须精确等于原币金额，不能跨店或改写原币种。费用总额 = SKU 已归因 + 已确认非订单 + 未归因，三项均按原币保留。已有自动分摊接口保留，新报表由独立核对视图叠加人工记录；无需将账单表金额回写。
+2026-10-28 补充接口：`GET /api/profit/ledger/review?entry_key=...&order_no=...` 读取同店商品、当前版本和最近 100 次审计；`POST /api/profit/ledger/review/preview` 预览；`POST /api/profit/ledger/review` 保存；`POST /api/profit/ledger/review/withdraw` 撤销。写入须携带 `X-Pangu-Request: finance`、版本及凭证；保存同时校验原账单指纹，并将原币金额、币种、费用日期和来源关联快照写入审计；源账单后续更新后仍可查当时依据。人工金额只接受原流水同方向或零，合计必须精确等于原币金额，不能跨店或改写原币种。费用总额 = SKU 已归因 + 已确认非订单 + 未归因，三项均按原币保留。已有自动分摊接口保留，新报表由独立核对视图叠加人工记录；无需将账单表金额回写。

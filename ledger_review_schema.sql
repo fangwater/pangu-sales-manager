@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS profit_ledger_reviews (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  entry_key text NOT NULL UNIQUE,shop_key text NOT NULL,source_fingerprint text NOT NULL,
+ source_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
  kind text NOT NULL CHECK(kind IN ('allocation','non_order')),
  method text NOT NULL CHECK(method IN ('declared_value','manual')),
  allocations jsonb NOT NULL CHECK(jsonb_typeof(allocations)='array'),
@@ -8,6 +9,7 @@ CREATE TABLE IF NOT EXISTS profit_ledger_reviews (
  version integer NOT NULL DEFAULT 1,created_at timestamptz NOT NULL DEFAULT now(),
  updated_at timestamptz NOT NULL DEFAULT now(),deleted_at timestamptz
 );
+ALTER TABLE profit_ledger_reviews ADD COLUMN IF NOT EXISTS source_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
 CREATE TABLE IF NOT EXISTS profit_ledger_review_history (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  review_id bigint NOT NULL REFERENCES profit_ledger_reviews(id),

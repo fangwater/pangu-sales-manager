@@ -149,6 +149,10 @@ func TestReviewBecomesStaleWhenSourceOrTargetChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var historicalAmount, historicalCurrency string
+	if err := s.store.db.QueryRow(`SELECT h.after_payload->'source_snapshot'->>'amount',h.after_payload->'source_snapshot'->>'currency' FROM profit_ledger_review_history h JOIN profit_ledger_reviews r ON r.id=h.review_id WHERE r.entry_key=$1 ORDER BY h.id DESC LIMIT 1`, entry).Scan(&historicalAmount, &historicalCurrency); err != nil || historicalAmount != "10.0000" || historicalCurrency != "USD" {
+		t.Fatal("lost original source evidence", historicalAmount, historicalCurrency, err)
+	}
 	var status, reviewStatus string
 	err = s.store.db.QueryRow(`SELECT allocation_status,review->>'status' FROM profit_reviewed_ledger_for_range('2026-09-01','2026-10-01','attribution-test','','',true) WHERE entry_key=$1`, entry).Scan(&status, &reviewStatus)
 	if err != nil || status != "unattributed" || reviewStatus != "stale" {
@@ -192,6 +196,10 @@ func TestNonOrderReviewIsSeparateFromSKUCash(t *testing.T) {
 	records, e := csv.NewReader(strings.NewReader(strings.TrimPrefix(w.Body.String(), "\ufeff"))).ReadAll()
 	if e != nil || len(records) != 2 || len(records[1]) != 27 || records[1][25] != nonorder || !strings.Contains(records[1][26], `"status": "active"`) {
 		t.Fatal("review CSV", e, records)
+	}
+	var snapshotAmount string
+	if err := s.store.db.QueryRow(`SELECT source_snapshot->>'amount' FROM profit_ledger_reviews WHERE entry_key=$1`, entry).Scan(&snapshotAmount); err != nil || snapshotAmount != src.Amount {
+		t.Fatal("non-order source amount missing", snapshotAmount, err)
 	}
 	var linked string
 	s.store.db.QueryRow(`SELECT entry_key FROM profit_ledger WHERE shop_key='attribution-test' AND source_reference='MULTI'`).Scan(&linked)

@@ -41,6 +41,12 @@ type ledgerReviewPart struct {
 	BasisEvidence      json.RawMessage `json:"basis_evidence,omitempty"`
 }
 type ledgerReviewSource struct {
+	OccurredAt *time.Time `json:"occurred_at"`
+	PaidAt     *time.Time `json:"paid_at"`
+	Package    string     `json:"package_no"`
+	Tracking   string     `json:"tracking_no"`
+	RawSKU     string     `json:"source_sku"`
+
 	Entry          string   `json:"entry_key"`
 	Shop           string   `json:"shop_key"`
 	Currency       string   `json:"currency"`
@@ -454,10 +460,11 @@ func (s *APIServer) writeLedgerReview(w http.ResponseWriter, r *http.Request, sa
 		return
 	}
 	raw, _ := json.Marshal(parts)
+	snapshot, _ := json.Marshal(src)
 	var after []byte
 	var id int64
-	err = tx.QueryRowContext(ctx, `INSERT INTO profit_ledger_reviews(entry_key,shop_key,source_fingerprint,kind,method,allocations,reference) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)
- ON CONFLICT(entry_key) DO UPDATE SET shop_key=EXCLUDED.shop_key,source_fingerprint=EXCLUDED.source_fingerprint,kind=EXCLUDED.kind,method=EXCLUDED.method,allocations=EXCLUDED.allocations,reference=EXCLUDED.reference,version=profit_ledger_reviews.version+1,updated_at=now(),deleted_at=NULL RETURNING id,to_jsonb(profit_ledger_reviews)`, src.Entry, src.Shop, src.Fingerprint, input.Kind, map[bool]string{true: "manual", false: input.Method}[input.Kind == "non_order"], string(raw), strings.TrimSpace(input.Reference)).Scan(&id, &after)
+	err = tx.QueryRowContext(ctx, `INSERT INTO profit_ledger_reviews(entry_key,shop_key,source_fingerprint,kind,method,allocations,reference,source_snapshot) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb)
+ ON CONFLICT(entry_key) DO UPDATE SET shop_key=EXCLUDED.shop_key,source_fingerprint=EXCLUDED.source_fingerprint,source_snapshot=EXCLUDED.source_snapshot,kind=EXCLUDED.kind,method=EXCLUDED.method,allocations=EXCLUDED.allocations,reference=EXCLUDED.reference,version=profit_ledger_reviews.version+1,updated_at=now(),deleted_at=NULL RETURNING id,to_jsonb(profit_ledger_reviews)`, src.Entry, src.Shop, src.Fingerprint, input.Kind, map[bool]string{true: "manual", false: input.Method}[input.Kind == "non_order"], string(raw), strings.TrimSpace(input.Reference), string(snapshot)).Scan(&id, &after)
 	if err == nil {
 		_, err = tx.ExecContext(ctx, `INSERT INTO profit_ledger_review_history(review_id,action,before_payload,after_payload) VALUES($1,'save',$2::jsonb,$3::jsonb)`, id, string(before), string(after))
 	}
