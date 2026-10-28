@@ -175,7 +175,56 @@ func parseProfitWorkbook(filename string, data []byte, opts profitParseOptions) 
 	if err != nil {
 		return ProfitImportBatch{}, err
 	}
+	if err := retainBillCellAmounts(book, sheets[0], &batch); err != nil {
+		return ProfitImportBatch{}, err
+	}
 	return batch, nil
+}
+
+// A workbook's display format can hide decimal places. Only the independent
+// evidence reads raw cell values; the existing revenue parser is unchanged.
+func retainBillCellAmounts(book *excelize.File, firstSheet string, batch *ProfitImportBatch) error {
+	if !billSource(batch.Kind) {
+		return nil
+	}
+	sheet := firstSheet
+	if batch.Kind == ProfitFileFundDetail {
+		sheet = "结算"
+		if len(batch.Settled) == 0 {
+			return nil
+		}
+	}
+	rows, err := book.GetRows(sheet, excelize.Options{RawCellValue: true})
+	if err != nil {
+		return err
+	}
+	start := 1
+	if len(rows) > 1 && ((batch.Kind == ProfitFileSettledParent && cell(rows[1], 1) == "SKU ID") || (batch.Kind != ProfitFileSettledParent && cell(rows[1], 6) == "SKU ID")) {
+		start = 2
+	}
+	index := 0
+	for _, row := range rows[start:] {
+		if rowEmpty(row) || cell(row, 0) == "" {
+			continue
+		}
+		value := func(column int) string { return strings.TrimSpace(strings.ReplaceAll(cell(row, column), ",", "")) }
+		if batch.Kind == ProfitFileSettledParent {
+			if index >= len(batch.Parents) {
+				return fmt.Errorf("核对原始单元格与聚合记录行数不一致")
+			}
+			batch.Parents[index].OriginalAmounts = map[string]string{"sales_receipt": value(8), "freight_receipt": value(11), "sales_chargeback": value(10), "freight_chargeback": value(13), "sales_receipt_after_discount": value(9), "freight_receipt_after_discount": value(12)}
+		} else {
+			if index >= len(batch.Settled) {
+				return fmt.Errorf("核对原始单元格与结算记录行数不一致")
+			}
+			batch.Settled[index].OriginalAmount = value(5)
+		}
+		index++
+	}
+	if (batch.Kind == ProfitFileSettledParent && index != len(batch.Parents)) || (batch.Kind != ProfitFileSettledParent && index != len(batch.Settled)) {
+		return fmt.Errorf("核对原始单元格与解析记录行数不一致")
+	}
+	return nil
 }
 
 func detectProfitFileKind(filename, hint string, sheets []string, firstRows [][]string) (string, error) {

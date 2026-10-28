@@ -1,7 +1,7 @@
 "use strict";
 const billState={page:1,data:null,params:'',controller:null,dialog:null};
 const billSources={fund_detail:'账务明细 · 结算',settled_flow:'PO 明细',settled_parent:'PO 聚合'};
-const billStatuses={matched:'金额一致',difference:'存在差异',missing:'缺少依据',review:'待核对'};
+const billStatuses={matched:'金额一致',difference:'存在差异',precision:'原值精度差异',missing:'缺少依据',review:'待核对'};
 const billComponents=['sales_receipt','freight_receipt','sales_chargeback','freight_chargeback'];
 function bindBillComparison(){
  document.getElementById('margin-dialog').addEventListener('close',()=>{billState.dialog=null;});
@@ -28,7 +28,7 @@ function billAmounts(source,dates=false){return billComponents.map(k=>escapeHtml
 function renderBillComparison(){
  const d=billState.data,s=d.summary;
  document.getElementById('bill-summary').innerHTML=Object.entries(billStatuses).map(([key,label])=>`<span>${label}<strong>${s[key]}</strong></span>`).join('');
- document.getElementById('bill-body').innerHTML=d.rows.map((r,i)=>`<tr><td>${escapeHtml(financeShopName(r.shop_key))}<small>${escapeHtml(r.po_no||'PO 缺失')}</small></td><td>${escapeHtml(r.currency||'缺失')}</td><td>销售回款<br>运费回款<br>销售冲回<br>运费冲回</td><td>${billAmounts(r.fund,true)}</td><td>${billAmounts(r.detail,true)}</td><td>${billAmounts(r.parent,true)}</td><td>${billAmounts(r.deltas.fund_detail)}</td><td>${billAmounts(r.deltas.detail_parent)}</td><td>${billStatuses[r.status]}<small>${escapeHtml(r.reasons.join('；'))}</small><small>流水差异 ${r.flow_differences} 笔</small></td><td><button class="text-command" data-bill-detail="${i}">核对依据</button></td></tr>`).join('')||emptyRow(10,'无匹配账单');
+ document.getElementById('bill-body').innerHTML=d.rows.map((r,i)=>`<tr><td>${escapeHtml(financeShopName(r.shop_key))}<small>${escapeHtml(r.po_no||'PO 缺失')}</small></td><td>${escapeHtml(r.currency||'缺失')}</td><td>销售回款<br>运费回款<br>销售冲回<br>运费冲回</td><td>${billAmounts(r.fund,true)}</td><td>${billAmounts(r.detail,true)}</td><td>${billAmounts(r.parent,true)}</td><td>${billAmounts(r.deltas.fund_detail)}</td><td>${billAmounts(r.deltas.detail_parent)}</td><td>${billStatuses[r.status]}<small>${escapeHtml(r.reasons.join('；'))}</small><small>流水原值差异 ${r.flow_differences} 笔</small><small>四位小数流水差异 ${r.accounting_flow_differences} 笔</small></td><td><button class="text-command" data-bill-detail="${i}">核对依据</button></td></tr>`).join('')||emptyRow(10,'无匹配账单');
  document.querySelectorAll('[data-bill-detail]').forEach(button=>button.onclick=()=>openBillDetail(d.rows[button.dataset.billDetail]));
  document.getElementById('bill-count').textContent=`第 ${d.page} 页 · ${d.total} 个 PO / 币种`;
  document.getElementById('bill-prev').disabled=d.page<=1;document.getElementById('bill-next').disabled=d.page*d.page_size>=d.total;

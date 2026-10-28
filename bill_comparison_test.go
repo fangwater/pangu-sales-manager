@@ -131,6 +131,30 @@ func TestBillComparisonRejectsNetOnlyAndTransactionOnlyMatches(t *testing.T) {
 		t.Fatalf("IDs aggregated away: %v", all["IDS/USD"])
 	}
 }
+func TestBillComparisonSeparatesPrecisionDifferencesWithoutDroppingRawAmounts(t *testing.T) {
+	const shop = "bill-precision"
+	ctx, s := billTestStore(t, shop)
+	if s == nil {
+		return
+	}
+	a := billFlow("F", "TAIL", "销售回款", 1.23)
+	a.OriginalAmount = "1.2300000000000001"
+	b := billFlow("B", "BOUNDARY", "销售回款", 1.23456)
+	b.OriginalAmount = "1.23456"
+	c := a
+	c.OriginalAmount = "1.23"
+	d := b
+	d.OriginalAmount = "1.23454"
+	billImport(t, ctx, s, shop, billBatch(ProfitFileFundDetail, a, b), billBatch(ProfitFileSettledFlow, c, d), billParent("TAIL", 1.23, 0, 0, 0), billParent("BOUNDARY", 1.23454, 0, 0, 0))
+	rows := billRead(t, ctx, s, shop)
+	if r := rows["TAIL/USD"]; r["status"] != "precision" || r["fund"].(map[string]any)["sales_receipt"] != "1.2300000000000001" || r["flow_differences"] != float64(1) || r["accounting_flow_differences"] != float64(0) {
+		t.Fatalf("precision evidence lost: %v", r)
+	}
+	if rows["BOUNDARY/USD"]["status"] != "difference" {
+		t.Fatal("rounding boundary masked by absolute tolerance")
+	}
+}
+
 func TestBillComparisonKeepsMissingSourcesNullAndCurrencyShopSeparate(t *testing.T) {
 	const shop = "bill-missing"
 	ctx, s := billTestStore(t, shop)
@@ -320,8 +344,15 @@ func TestBillEvidenceHTTPPreservesFileHashAndRequiresSameOrigin(t *testing.T) {
 	defer book.Close()
 	headers := []any{"结算流水ID", "批次号", "PO单号", "单据号", "交易类型", "结算金额"}
 	_ = book.SetSheetRow("Sheet1", "A1", &headers)
-	row := []any{"HTTP-FLOW", "B", "HTTP-PO", "D", "销售回款", "1.1234", nil, nil, nil, nil, nil, nil, "USD"}
+	row := []any{"HTTP-FLOW", "B", "HTTP-PO", "D", "销售回款", 1.1234, nil, nil, nil, nil, nil, nil, "USD"}
 	_ = book.SetSheetRow("Sheet1", "A2", &row)
+	style, err := book.NewStyle(&excelize.Style{NumFmt: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetCellStyle("Sheet1", "F2", "F2", style); err != nil {
+		t.Fatal(err)
+	}
 	xlsx, err := book.WriteToBuffer()
 	if err != nil {
 		t.Fatal(err)
@@ -379,5 +410,36 @@ func TestBillEvidenceHTTPPreservesFileHashAndRequiresSameOrigin(t *testing.T) {
 	s.db.QueryRowContext(ctx, `SELECT count(*) FROM temu_profit_settled_flows WHERE shop_key=$1`, shop).Scan(&financeRows)
 	if financeRows != 0 {
 		t.Fatal("evidence upload modified revenue")
+	}
+}
+
+func TestBillParentEvidenceRetainsRawAmountsUnderDisplayFormatting(t *testing.T) {
+	book := excelize.NewFile()
+	defer book.Close()
+	headers := []any{"PO单号", "商品信息"}
+	_ = book.SetSheetRow("Sheet1", "A1", &headers)
+	row := []any{"RAW-PO", nil, nil, nil, nil, nil, nil, "USD", 1.1234, 0.004, nil, 0, 0, 0}
+	_ = book.SetSheetRow("Sheet1", "A2", &row)
+	style, err := book.NewStyle(&excelize.Style{NumFmt: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetCellStyle("Sheet1", "I2", "N2", style); err != nil {
+		t.Fatal(err)
+	}
+	xlsx, err := book.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := parseProfitWorkbook("parent.xlsx", xlsx.Bytes(), profitParseOptions{ShopKey: "test", Hint: ProfitFileSettledParent, Location: time.UTC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Parents) != 1 {
+		t.Fatal("missing parent")
+	}
+	r := batch.Parents[0]
+	if r.SalesReceipt != 1.12 || r.OriginalAmounts["sales_receipt"] != "1.1234" || r.OriginalAmounts["sales_receipt_after_discount"] != "0.004" || r.OriginalAmounts["sales_chargeback"] != "" {
+		t.Fatalf("display formatting affected evidence: %+v", r)
 	}
 }

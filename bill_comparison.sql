@@ -27,6 +27,10 @@ WITH current_rows AS MATERIALIZED (SELECT * FROM profit_bill_current_rows),
   CASE WHEN source='settled_parent' THEN SUM(freight_receipt) ELSE COALESCE(SUM(amount) FILTER(WHERE trade_type='运费回款'),0) END AS freight_receipt,
   CASE WHEN source='settled_parent' THEN -SUM(ABS(sales_chargeback)) ELSE COALESCE(SUM(amount) FILTER(WHERE trade_type='销售冲回'),0) END AS sales_chargeback,
   CASE WHEN source='settled_parent' THEN -SUM(ABS(freight_chargeback)) ELSE COALESCE(SUM(amount) FILTER(WHERE trade_type='运费冲回'),0) END AS freight_chargeback,
+  CASE WHEN source='settled_parent' THEN SUM(ROUND(sales_receipt,4)) ELSE COALESCE(SUM(ROUND(amount,4)) FILTER(WHERE trade_type='销售回款'),0) END AS accounting_sales_receipt,
+  CASE WHEN source='settled_parent' THEN SUM(ROUND(freight_receipt,4)) ELSE COALESCE(SUM(ROUND(amount,4)) FILTER(WHERE trade_type='运费回款'),0) END AS accounting_freight_receipt,
+  CASE WHEN source='settled_parent' THEN -SUM(ABS(ROUND(sales_chargeback,4))) ELSE COALESCE(SUM(ROUND(amount,4)) FILTER(WHERE trade_type='销售冲回'),0) END AS accounting_sales_chargeback,
+  CASE WHEN source='settled_parent' THEN -SUM(ABS(ROUND(freight_chargeback,4))) ELSE COALESCE(SUM(ROUND(amount,4)) FILTER(WHERE trade_type='运费冲回'),0) END AS accounting_freight_chargeback,
   COUNT(*) FILTER(WHERE source<>'settled_parent' AND trade_type NOT IN ('销售回款','运费回款','销售冲回','运费冲回')) AS unknown_rows,
   BOOL_OR(discounted) AS discounted,BOOL_OR(direction_error OR (trade_type IN ('销售回款','运费回款') AND amount<0) OR (trade_type IN ('销售冲回','运费冲回') AND amount>0) OR sales_receipt<0 OR freight_receipt<0) AS direction_error,
   BOOL_OR(source='settled_parent' AND (sales_receipt IS NULL OR freight_receipt IS NULL OR sales_chargeback IS NULL OR freight_chargeback IS NULL)) AS incomplete,
@@ -36,13 +40,14 @@ WITH current_rows AS MATERIALIZED (SELECT * FROM profit_bill_current_rows),
 ), pairs AS (
  SELECT f.shop_key AS fs,f.po_no AS fp,f.currency AS fc,d.shop_key AS ds,d.po_no AS dp,d.currency AS dc,
   f.business_key AS fk,d.business_key AS dk,
-  f.po_no IS DISTINCT FROM d.po_no OR f.currency IS DISTINCT FROM d.currency OR f.trade_type IS DISTINCT FROM d.trade_type OR f.amount IS DISTINCT FROM d.amount AS differs
+  f.po_no IS DISTINCT FROM d.po_no OR f.currency IS DISTINCT FROM d.currency OR f.trade_type IS DISTINCT FROM d.trade_type OR f.amount IS DISTINCT FROM d.amount AS differs,
+  f.po_no IS DISTINCT FROM d.po_no OR f.currency IS DISTINCT FROM d.currency OR f.trade_type IS DISTINCT FROM d.trade_type OR ROUND(f.amount,4) IS DISTINCT FROM ROUND(d.amount,4) AS accounting_differs
  FROM (SELECT * FROM current_rows WHERE source='fund_detail') f
  FULL JOIN (SELECT * FROM current_rows WHERE source='settled_flow') d ON f.shop_key=d.shop_key AND f.business_key=d.business_key
 ), flow_issues AS (
- SELECT shop_key,po_no,currency,COUNT(*) AS flow_differences FROM (
-  SELECT fs AS shop_key,fp AS po_no,fc AS currency,fk AS business_key FROM pairs WHERE differs AND fs IS NOT NULL
-  UNION SELECT ds,dp,dc,dk FROM pairs WHERE differs AND ds IS NOT NULL
+ SELECT shop_key,po_no,currency,COUNT(*) AS flow_differences,COUNT(*) FILTER(WHERE accounting_differs) AS accounting_flow_differences FROM (
+  SELECT fs AS shop_key,fp AS po_no,fc AS currency,fk AS business_key,accounting_differs FROM pairs WHERE differs AND fs IS NOT NULL
+  UNION SELECT ds,dp,dc,dk,accounting_differs FROM pairs WHERE differs AND ds IS NOT NULL
  ) v GROUP BY 1,2,3
 ), keys AS (
  SELECT shop_key,po_no,currency FROM grouped
@@ -51,7 +56,7 @@ WITH current_rows AS MATERIALIZED (SELECT * FROM profit_bill_current_rows),
 ), currencies AS (
  SELECT shop_key,po_no,COUNT(DISTINCT currency) FILTER(WHERE currency<>'') AS currencies FROM keys GROUP BY 1,2
 ), compared AS (
- SELECT k.*,COALESCE(x.flow_differences,0) AS flow_differences,
+ SELECT k.*,COALESCE(x.flow_differences,0) AS flow_differences,COALESCE(x.accounting_flow_differences,0) AS accounting_flow_differences,
   CASE WHEN f.rows IS NULL THEN NULL ELSE jsonb_build_object('rows',f.rows,'sales_receipt',f.sales_receipt::text,'freight_receipt',f.freight_receipt::text,'sales_chargeback',f.sales_chargeback::text,'freight_chargeback',f.freight_chargeback::text,'first_at',f.first_at,'last_at',f.last_at,'files',f.files) END AS fund,
   CASE WHEN d.rows IS NULL THEN NULL ELSE jsonb_build_object('rows',d.rows,'sales_receipt',d.sales_receipt::text,'freight_receipt',d.freight_receipt::text,'sales_chargeback',d.sales_chargeback::text,'freight_chargeback',d.freight_chargeback::text,'first_at',d.first_at,'last_at',d.last_at,'files',d.files) END AS detail,
   CASE WHEN p.rows IS NULL THEN NULL ELSE jsonb_build_object('rows',p.rows,'sales_receipt',p.sales_receipt::text,'freight_receipt',p.freight_receipt::text,'sales_chargeback',p.sales_chargeback::text,'freight_chargeback',p.freight_chargeback::text,'files',p.files) END AS parent,
@@ -68,7 +73,8 @@ WITH current_rows AS MATERIALIZED (SELECT * FROM profit_bill_current_rows),
   ARRAY_REMOVE(ARRAY[CASE WHEN f.rows IS NULL THEN '缺少账务明细结算依据' END,CASE WHEN d.rows IS NULL THEN '缺少 PO 明细依据' END,CASE WHEN p.rows IS NULL THEN '缺少 PO 聚合依据' END],NULL) AS missing_reasons,
   COALESCE((f.sales_receipt,f.freight_receipt,f.sales_chargeback,f.freight_chargeback)<>(d.sales_receipt,d.freight_receipt,d.sales_chargeback,d.freight_chargeback),false)
   OR COALESCE((d.sales_receipt,d.freight_receipt,d.sales_chargeback,d.freight_chargeback)<>(p.sales_receipt,p.freight_receipt,p.sales_chargeback,p.freight_chargeback),false)
-  OR COALESCE((f.sales_receipt,f.freight_receipt,f.sales_chargeback,f.freight_chargeback)<>(p.sales_receipt,p.freight_receipt,p.sales_chargeback,p.freight_chargeback),false) AS amount_differs
+  OR COALESCE((f.sales_receipt,f.freight_receipt,f.sales_chargeback,f.freight_chargeback)<>(p.sales_receipt,p.freight_receipt,p.sales_chargeback,p.freight_chargeback),false) AS amount_differs,
+  COALESCE((f.accounting_sales_receipt,f.accounting_freight_receipt,f.accounting_sales_chargeback,f.accounting_freight_chargeback)<>(d.accounting_sales_receipt,d.accounting_freight_receipt,d.accounting_sales_chargeback,d.accounting_freight_chargeback),false) OR COALESCE((d.accounting_sales_receipt,d.accounting_freight_receipt,d.accounting_sales_chargeback,d.accounting_freight_chargeback)<>(p.accounting_sales_receipt,p.accounting_freight_receipt,p.accounting_sales_chargeback,p.accounting_freight_chargeback),false) OR COALESCE((f.accounting_sales_receipt,f.accounting_freight_receipt,f.accounting_sales_chargeback,f.accounting_freight_chargeback)<>(p.accounting_sales_receipt,p.accounting_freight_receipt,p.accounting_sales_chargeback,p.accounting_freight_chargeback),false) AS accounting_amount_differs
  FROM keys k JOIN currencies c USING(shop_key,po_no)
  LEFT JOIN grouped f ON (f.shop_key,f.po_no,f.currency,f.source)=(k.shop_key,k.po_no,k.currency,'fund_detail')
  LEFT JOIN grouped d ON (d.shop_key,d.po_no,d.currency,d.source)=(k.shop_key,k.po_no,k.currency,'settled_flow')
@@ -76,6 +82,6 @@ WITH current_rows AS MATERIALIZED (SELECT * FROM profit_bill_current_rows),
  LEFT JOIN flow_issues x ON (x.shop_key,x.po_no,x.currency)=(k.shop_key,k.po_no,k.currency)
 )
 SELECT shop_key,po_no,currency,fund,detail,parent,deltas,flow_differences,
- CASE WHEN cardinality(review_reasons)>0 THEN 'review' WHEN cardinality(missing_reasons)>0 THEN 'missing' WHEN amount_differs OR flow_differences>0 THEN 'difference' ELSE 'matched' END AS status,
- review_reasons||missing_reasons||CASE WHEN amount_differs THEN ARRAY['四类款项金额不一致'] ELSE ARRAY[]::text[] END||CASE WHEN flow_differences>0 THEN ARRAY['结算流水缺少或金额 / 关联不一致'] ELSE ARRAY[]::text[] END AS reasons
+ CASE WHEN cardinality(review_reasons)>0 THEN 'review' WHEN cardinality(missing_reasons)>0 THEN 'missing' WHEN accounting_amount_differs OR accounting_flow_differences>0 THEN 'difference' WHEN amount_differs OR flow_differences>0 THEN 'precision' ELSE 'matched' END AS status,
+ review_reasons||missing_reasons||CASE WHEN amount_differs THEN ARRAY['四类款项金额不一致'] ELSE ARRAY[]::text[] END||CASE WHEN flow_differences>0 THEN ARRAY['结算流水缺少或金额 / 关联不一致'] ELSE ARRAY[]::text[] END||CASE WHEN NOT accounting_amount_differs AND accounting_flow_differences=0 AND (amount_differs OR flow_differences>0) THEN ARRAY['按逐笔四位小数核对一致，原始小数存在差异'] ELSE ARRAY[]::text[] END AS reasons,accounting_flow_differences
 FROM compared;

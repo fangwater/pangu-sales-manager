@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"regexp"
 	"strings"
@@ -77,6 +78,17 @@ func recordBillEvidence(ctx context.Context, tx *sql.Tx, shop string, batch Prof
 	}
 	if batch.Kind == ProfitFileSettledParent {
 		for _, r := range batch.Parents {
+			discounted := r.SalesReceiptAfterDiscount != 0 || r.FreightReceiptAfterDiscount != 0
+			for _, key := range []string{"sales_receipt_after_discount", "freight_receipt_after_discount"} {
+				if raw, exists := r.OriginalAmounts[key]; exists {
+					if _, err := billOriginal(raw, 0, true); err != nil {
+						return 0, false, err
+					}
+					if n, ok := new(big.Rat).SetString(raw); ok && n.Sign() != 0 {
+						discounted = true
+					}
+				}
+			}
 			values := make([]any, 4)
 			for i, k := range []string{"sales_receipt", "freight_receipt", "sales_chargeback", "freight_chargeback"} {
 				value, err := billOriginal(r.OriginalAmounts[k], []float64{r.SalesReceipt, r.FreightReceipt, r.SalesChargeback, r.FreightChargeback}[i], r.OriginalAmounts != nil)
@@ -85,7 +97,7 @@ func recordBillEvidence(ctx context.Context, tx *sql.Tx, shop string, batch Prof
 				}
 				values[i] = value
 			}
-			if err := insert(r.PONo, r.PONo, r.Currency, "", nil, values[0], values[1], values[2], values[3], r.SalesReceiptAfterDiscount != 0 || r.FreightReceiptAfterDiscount != 0, r.SalesReceipt < 0 || r.FreightReceipt < 0, nil, r); err != nil {
+			if err := insert(r.PONo, r.PONo, r.Currency, "", nil, values[0], values[1], values[2], values[3], discounted, r.SalesReceipt < 0 || r.FreightReceipt < 0, nil, r); err != nil {
 				return 0, false, err
 			}
 		}
@@ -143,7 +155,7 @@ type billFilter struct {
 func parseBillFilter(r *http.Request) (billFilter, error) {
 	q := r.URL.Query()
 	f := billFilter{Shop: strings.TrimSpace(q.Get("shop_key")), Currency: strings.TrimSpace(q.Get("currency")), Status: strings.TrimSpace(q.Get("status")), Q: strings.TrimSpace(q.Get("q")), Page: normalizedPage(queryInt(r, "page", 1), 1, 100000), Size: normalizedPage(queryInt(r, "page_size", 30), 30, 200)}
-	if !map[string]bool{"": true, "matched": true, "difference": true, "missing": true, "review": true}[f.Status] || len(f.Currency) > 16 || len([]rune(f.Q)) > 200 {
+	if !map[string]bool{"": true, "matched": true, "difference": true, "precision": true, "missing": true, "review": true}[f.Status] || len(f.Currency) > 16 || len([]rune(f.Q)) > 200 {
 		return f, fmt.Errorf("状态、币种或查询条件无效")
 	}
 	return f, nil
@@ -173,7 +185,7 @@ func (s *Store) queryBillComparison(ctx context.Context, f billFilter, export bo
 	}
 	err := s.db.QueryRowContext(ctx, billFiltered+`,paged AS (SELECT * FROM filtered ORDER BY shop_key,po_no,currency `+paging+`)
  SELECT (SELECT count(*) FROM filtered),COALESCE((SELECT jsonb_agg(to_jsonb(paged) ORDER BY shop_key,po_no,currency) FROM paged),'[]'::jsonb),
- (SELECT jsonb_build_object('matched',count(*) FILTER(WHERE status='matched'),'difference',count(*) FILTER(WHERE status='difference'),'missing',count(*) FILTER(WHERE status='missing'),'review',count(*) FILTER(WHERE status='review')) FROM filtered),
+ (SELECT jsonb_build_object('matched',count(*) FILTER(WHERE status='matched'),'difference',count(*) FILTER(WHERE status='difference'),'precision',count(*) FILTER(WHERE status='precision'),'missing',count(*) FILTER(WHERE status='missing'),'review',count(*) FILTER(WHERE status='review')) FROM filtered),
  COALESCE((SELECT jsonb_agg(to_jsonb(v) ORDER BY imported_at DESC,id DESC) FROM (SELECT f.*,count(r.row_no) AS rows FROM profit_bill_files f LEFT JOIN profit_bill_rows r ON r.file_id=f.id WHERE ($1='' OR f.shop_key=$1) GROUP BY f.id ORDER BY f.imported_at DESC,f.id DESC LIMIT 30) v),'[]'::jsonb)
  `, args...).Scan(&result.Total, &raw, &result.Summary, &result.Files)
 	if err == nil {
@@ -235,7 +247,7 @@ var billCSVNumber = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 func writeBillCSV(w http.ResponseWriter, rows []json.RawMessage) {
 	components := []string{"sales_receipt", "freight_receipt", "sales_chargeback", "freight_chargeback"}
 	names := []string{"销售回款", "运费回款", "销售冲回", "运费冲回"}
-	headers := []string{"店铺", "PO", "币种", "状态", "核对原因", "流水差异数"}
+	headers := []string{"店铺", "PO", "币种", "状态", "核对原因", "流水原值差异数", "四位小数流水差异数"}
 	for _, source := range []string{"账务明细", "PO明细", "PO聚合", "账务明细减PO明细", "PO明细减PO聚合"} {
 		for _, name := range names {
 			headers = append(headers, source+"-"+name)
@@ -253,7 +265,7 @@ func writeBillCSV(w http.ResponseWriter, rows []json.RawMessage) {
 			return fmt.Sprint(v)
 		}
 		reasons, _ := json.Marshal(row["reasons"])
-		record := []string{str(row["shop_key"]), str(row["po_no"]), str(row["currency"]), str(row["status"]), string(reasons), str(row["flow_differences"])}
+		record := []string{str(row["shop_key"]), str(row["po_no"]), str(row["currency"]), str(row["status"]), string(reasons), str(row["flow_differences"]), str(row["accounting_flow_differences"])}
 		provenance := map[string]any{}
 		for _, key := range []string{"fund", "detail", "parent"} {
 			source, _ := row[key].(map[string]any)
